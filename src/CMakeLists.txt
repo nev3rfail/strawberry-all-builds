@@ -1005,6 +1005,27 @@ optional_source(HAVE_EBUR128
   SOURCES engine/ebur128analysis.cpp
 )
 
+# Visualizations
+optional_source(HAVE_VISUALIZATIONS
+  SOURCES
+    visualizations/projectmpresetmodel.cpp
+    visualizations/projectmvisualization.cpp
+    visualizations/visualizationcontainer.cpp
+    visualizations/visualizationoverlay.cpp
+    visualizations/visualizationselector.cpp
+    visualizations/visualizationopenglwidget.cpp
+  HEADERS
+    visualizations/projectmpresetmodel.h
+    visualizations/projectmvisualization.h
+    visualizations/visualizationcontainer.h
+    visualizations/visualizationoverlay.h
+    visualizations/visualizationselector.h
+    visualizations/visualizationopenglwidget.h
+  UI
+    visualizations/visualizationoverlay.ui
+    visualizations/visualizationselector.ui
+)
+
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config.h.in ${CMAKE_CURRENT_BINARY_DIR}/config.h)
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/version.h.in ${CMAKE_CURRENT_BINARY_DIR}/version.h)
 
@@ -1114,6 +1135,10 @@ if(HAVE_X11_GLOBALSHORTCUTS AND HAVE_X11EXTRAS)
   target_link_libraries(strawberry_lib PUBLIC Qt${QT_VERSION_MAJOR}::X11Extras)
 endif()
 
+if(HAVE_VISUALIZATIONS)
+  target_link_libraries(strawberry_lib PUBLIC Qt${QT_VERSION_MAJOR}::OpenGLWidgets)
+endif()
+
 if(HAVE_ALSA)
   target_include_directories(strawberry_lib SYSTEM PRIVATE ${ALSA_INCLUDE_DIRS})
   target_link_directories(strawberry_lib PRIVATE ${ALSA_LIBRARY_DIRS})
@@ -1213,6 +1238,12 @@ if(HAVE_LIBMTP)
   target_include_directories(strawberry_lib SYSTEM PRIVATE ${LIBMTP_INCLUDE_DIRS})
   target_link_directories(strawberry_lib PRIVATE ${LIBMTP_LIBRARY_DIRS})
   target_link_libraries(strawberry_lib PRIVATE ${LIBMTP_LIBRARIES})
+endif()
+
+if(HAVE_VISUALIZATIONS)
+  target_include_directories(strawberry_lib SYSTEM PRIVATE ${LIBPROJECTM_INCLUDE_DIRS})
+  target_link_directories(strawberry_lib PRIVATE ${LIBPROJECTM_LIBRARY_DIRS})
+  target_link_libraries(strawberry_lib PRIVATE ${LIBPROJECTM_LIBRARIES})
 endif()
 
 if(APPLE)

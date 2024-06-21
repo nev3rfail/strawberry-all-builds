@@ -101,6 +101,7 @@ class Windows7ThumbBar;
 class AddStreamDialog;
 class LastFMImportDialog;
 class RadioViewContainer;
+class VisualizationContainer;
 
 class MainWindow : public QMainWindow, public PlatformInterface {
   Q_OBJECT
@@ -270,6 +271,7 @@ class MainWindow : public QMainWindow, public PlatformInterface {
  public Q_SLOTS:
   void CommandlineOptionsReceived(const QByteArray &string_options);
   void Raise();
+  void ShowVisualizations();
 
  private:
 
@@ -350,6 +352,10 @@ class MainWindow : public QMainWindow, public PlatformInterface {
   RadioViewContainer *radio_view_;
 
   LastFMImportDialog *lastfm_import_dialog_;
+
+#ifdef HAVE_VISUALIZATIONS
+  ScopedPtr<VisualizationContainer> visualization_;
+#endif
 
   QAction *collection_show_all_;
   QAction *collection_show_duplicates_;
