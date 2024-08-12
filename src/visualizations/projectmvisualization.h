@@ -71,7 +71,7 @@ class ProjectMVisualization : public QObject, public GstBufferConsumer {
   // BufferConsumer
   void ConsumeBuffer(GstBuffer *buffer, const int pipeline_id, const QString &format) override;
 
- public slots:
+ public Q_SLOTS:
   void SetTextureSize(const int size);
   void SetDuration(const int seconds);
 
@@ -83,7 +83,7 @@ class ProjectMVisualization : public QObject, public GstBufferConsumer {
 
   void Lock(const bool lock);
 
- private slots:
+ private Q_SLOTS:
   void SceneRectChanged(const QRectF &rect);
 
  private:

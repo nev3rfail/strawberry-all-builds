@@ -46,10 +46,10 @@ class VisualizationOverlay : public QWidget {
   void SetActions(QAction *previous, QAction *play_pause, QAction *stop, QAction *next);
   void SetSongTitle(const QString &title);
 
- public slots:
+ public Q_SLOTS:
   void SetVisible(const bool visible);
 
- signals:
+ Q_SIGNALS:
   void OpacityChanged(const qreal value);
   void ShowPopupMenu(const QPoint &pos);
 
@@ -57,7 +57,7 @@ class VisualizationOverlay : public QWidget {
   // QWidget
   void timerEvent(QTimerEvent *e);
 
- private slots:
+ private Q_SLOTS:
   void ShowSettingsMenu();
 
  private:

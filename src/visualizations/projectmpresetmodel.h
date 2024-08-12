@@ -53,7 +53,7 @@ class ProjectMPresetModel : public QAbstractItemModel {
   Qt::ItemFlags flags(const QModelIndex &index) const override;
   bool setData(const QModelIndex &index, const QVariant &value, const int role = Qt::EditRole) override;
 
- public slots:
+ public Q_SLOTS:
   void SetImmediatePreset(const QModelIndex &index);
   void SelectAll();
   void SelectNone();

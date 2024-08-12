@@ -60,7 +60,7 @@ class VisualizationContainer : public QMainWindow {
   void SetEngine(GstEngine *engine);
   void SetActions(QAction *previous, QAction *play_pause, QAction *stop, QAction *next);
 
- public slots:
+ public Q_SLOTS:
   void SongMetadataChanged(const Song &metadata);
   void Stopped();
 
@@ -87,7 +87,7 @@ class VisualizationContainer : public QMainWindow {
   void AddFramerateMenuItem(const QString &name, int value, int def, QActionGroup *group);
   void AddQualityMenuItem(const QString &name, int value, int def, QActionGroup *group);
 
- private slots:
+ private Q_SLOTS:
   void ChangeOverlayOpacity(qreal value);
   void ShowPopupMenu(const QPoint &pos);
   void ToggleFullscreen();

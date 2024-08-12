@@ -46,7 +46,7 @@ class VisualizationSelector : public QDialog {
   void showEvent(QShowEvent *e) override;
   void hideEvent(QHideEvent *e) override;
 
- private slots:
+ private Q_SLOTS:
   void ModeChanged(const int mode);
   void SelectAll();
   void SelectNone();
