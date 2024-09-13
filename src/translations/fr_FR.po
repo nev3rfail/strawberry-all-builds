@@ -11,7 +11,7 @@ msgstr ""
 "Project-Id-Version: strawberrymusicplayer\n"
 "Language-Team: French\n"
 "Language: fr_FR\n"
-"PO-Revision-Date: 2024-09-13 13:59\n"
+"PO-Revision-Date: 2024-09-13 15:26\n"
 
 msgid "All Files (*)"
 msgstr "Tous les fichiers (*)"
@@ -2135,7 +2135,7 @@ msgid "MTP error: %1"
 msgstr "Erreur MTP : %1"
 
 msgid "MTP device not found."
-msgstr "Appareil MTP introuvable."
+msgstr "Périphérique MTP introuvable."
 
 msgid "Loading MTP device"
 msgstr "Chargement du périphérique MTP"
@@ -2201,7 +2201,7 @@ msgid "Identifying song"
 msgstr "Identification du morceau"
 
 msgid "Fingerprinting song"
-msgstr ""
+msgstr "Morceau d'empreinte digitale"
 
 msgid "Downloading metadata"
 msgstr "Téléchargement des métadonnées"
@@ -2997,7 +2997,7 @@ msgid "Use various artists for compilation albums"
 msgstr "Utiliser divers artistes pour les albums de compilation"
 
 msgid "Skip leading articles (\"the\", \"a\", \"an\") when sorting artist names"
-msgstr "Ignorer les déterminants (\"Les\", \"Le/La\", \"The\"…) lors du tri des noms d'artistes"
+msgstr "Ignorer les déterminants (\"Les\", \"Le/La\", \"un/une\"…) lors du tri des noms d'artistes"
 
 msgid "Album cover pixmap cache"
 msgstr "Cache pixmap de pochette d'album"
