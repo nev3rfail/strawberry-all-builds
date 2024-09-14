@@ -11,7 +11,7 @@ msgstr ""
 "Project-Id-Version: strawberrymusicplayer\n"
 "Language-Team: Spanish\n"
 "Language: es_ES\n"
-"PO-Revision-Date: 2024-09-13 18:08\n"
+"PO-Revision-Date: 2024-09-14 16:42\n"
 
 msgid "All Files (*)"
 msgstr "Todos los archivos (*)"
@@ -1949,7 +1949,7 @@ msgid "Previous track"
 msgstr "Pista anterior"
 
 msgid "Restart or previous track"
-msgstr ""
+msgstr "Reiniciar o pista anterior"
 
 msgid "Increase volume"
 msgstr "Aumentar el volumen"
@@ -2560,7 +2560,7 @@ msgid "&Do a full collection rescan"
 msgstr "Anali&zar de nuevo toda la biblioteca"
 
 msgid "Stop collection scan"
-msgstr ""
+msgstr "Detener análisis de la colección"
 
 msgid "Complete tags automatically..."
 msgstr "Completar etiquetas automáticamente…"
@@ -4298,7 +4298,7 @@ msgid "Device credentials"
 msgstr "Credenciales del dispositivo"
 
 msgid "<html><head/><body><p>The GStreamer Spotify plugin is not detected, you will not be able to stream songs from Spotify without it. See <a href=\"https://wiki.strawberrymusicplayer.org/wiki/Installing_GStreamer_Spotify_plugin\"><span style=\" text-decoration: underline; color:#2980b9;\">Wiki</span></a> for instructions on how to install the plugin.</p></body></html>"
-msgstr ""
+msgstr "<html><head/><body><p>No se detecta el plugin GStreamer de Spotify, por lo que no podrás transmitir canciones desde Spotify sin él. Véase la <a href=\"https://wiki.strawberrymusicplayer.org/wiki/Installing_GStreamer_Spotify_plugin\"><span style=\" text-decoration: underline; color:#2980b9;\">Wiki</span></a> para las instrucciones de cómo instalar el plugin.</p></body></html>"
 
 msgid "Qobuz support is not official and requires an API app ID and secret from a registered application to work. We can't help you getting these."
 msgstr "La compatibilidad con Qobuz no es oficial y precisa de un token de API procedente de una aplicación registrada. No le podemos ayudar a conseguirlo."
