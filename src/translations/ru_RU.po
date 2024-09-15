@@ -11,7 +11,7 @@ msgstr ""
 "Project-Id-Version: strawberrymusicplayer\n"
 "Language-Team: Russian\n"
 "Language: ru_RU\n"
-"PO-Revision-Date: 2024-09-13 18:08\n"
+"PO-Revision-Date: 2024-09-15 21:11\n"
 
 msgid "All Files (*)"
 msgstr "Все файлы (*)"
@@ -1949,7 +1949,7 @@ msgid "Previous track"
 msgstr "Предыдущий трек"
 
 msgid "Restart or previous track"
-msgstr ""
+msgstr "Перезапустить или предыдущий трек"
 
 msgid "Increase volume"
 msgstr "Увеличить громкость"
