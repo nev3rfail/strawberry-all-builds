@@ -1491,7 +1491,10 @@ jobs:
         shell: cmd
         working-directory: build
         run: makensis strawberry.nsi
-
+      - name: test_upload
+        uses: actions/upload-artifact@v4
+        with:
+          path: build/StrawberrySetup*.exe
       - name: Set Upload path
         id: set-upload-path
         shell: bash
@@ -1520,6 +1523,9 @@ jobs:
         if: steps.set-upload-path.outputs.upload_path != ''
         shell: bash
         run: rsync -e "/c/ProgramData/chocolatey/lib/rsync/tools/bin/ssh.exe -p ${{secrets.SSH_PORT}} -o StrictHostKeyChecking=no" -var build/StrawberrySetup*.exe ${{secrets.SSH_USER}}@${{secrets.SSH_HOST}}:${{steps.set-upload-path.outputs.upload_path}}/
+
+
+
 
 
   upload:
