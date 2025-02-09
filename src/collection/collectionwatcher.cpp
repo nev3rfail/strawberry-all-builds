@@ -2,7 +2,7 @@
  * Strawberry Music Player
  * This file was part of Clementine.
  * Copyright 2010, David Sansome <me@davidsansome.com>
- * Copyright 2018-2023, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,6 +27,7 @@
 #include <QObject>
 #include <QThread>
 #include <QIODevice>
+#include <QStorageInfo>
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
@@ -47,16 +48,17 @@
 
 #include "core/filesystemwatcherinterface.h"
 #include "core/logging.h"
-#include "core/tagreaderclient.h"
 #include "core/taskmanager.h"
 #include "core/settings.h"
 #include "utilities/imageutils.h"
-#include "utilities/timeconstants.h"
+#include "constants/timeconstants.h"
+#include "constants/filesystemconstants.h"
+#include "tagreader/tagreaderclient.h"
 #include "collectiondirectory.h"
 #include "collectionbackend.h"
 #include "collectionwatcher.h"
 #include "playlistparsers/cueparser.h"
-#include "settings/collectionsettingspage.h"
+#include "constants/collectionsettings.h"
 #include "engine/ebur128measures.h"
 #ifdef HAVE_SONGFINGERPRINTING
 #  include "engine/chromaprinter.h"
@@ -71,15 +73,20 @@
 #endif
 
 using namespace std::chrono_literals;
-using namespace Qt::StringLiterals;
+using namespace Qt::Literals::StringLiterals;
 
-QStringList CollectionWatcher::sValidImages = QStringList() << QStringLiteral("jpg") << QStringLiteral("png") << QStringLiteral("gif") << QStringLiteral("jpeg");
+QStringList CollectionWatcher::sValidImages = QStringList() << u"jpg"_s << u"png"_s << u"gif"_s << u"jpeg"_s;
 
-CollectionWatcher::CollectionWatcher(Song::Source source, QObject *parent)
+CollectionWatcher::CollectionWatcher(const Song::Source source,
+                                     const SharedPtr<TaskManager> task_manager,
+                                     const SharedPtr<TagReaderClient> tagreader_client,
+                                     const SharedPtr<CollectionBackend> backend,
+                                     QObject *parent)
     : QObject(parent),
       source_(source),
-      backend_(nullptr),
-      task_manager_(nullptr),
+      task_manager_(task_manager),
+      tagreader_client_(tagreader_client),
+      backend_(backend),
       fs_watcher_(FileSystemWatcherInterface::Create(this)),
       original_thread_(nullptr),
       scan_on_startup_(true),
@@ -96,10 +103,10 @@ CollectionWatcher::CollectionWatcher(Song::Source source, QObject *parent)
       periodic_scan_timer_(new QTimer(this)),
       rescan_paused_(false),
       total_watches_(0),
-      cue_parser_(new CueParser(backend_, this)),
+      cue_parser_(new CueParser(tagreader_client, backend, this)),
       last_scan_time_(0) {
 
-  setObjectName(source_ == Song::Source::Collection ? QLatin1String(metaObject()->className()) : QStringLiteral("%1%2").arg(Song::DescriptionForSource(source_), QLatin1String(metaObject()->className())));
+  setObjectName(source_ == Song::Source::Collection ? QLatin1String(QObject::metaObject()->className()) : QStringLiteral("%1%2").arg(Song::DescriptionForSource(source_), QLatin1String(QObject::metaObject()->className())));
 
   original_thread_ = thread();
 
@@ -196,23 +203,29 @@ void CollectionWatcher::ReloadSettings() {
 
   const bool was_monitoring_before = monitor_;
   Settings s;
-  s.beginGroup(CollectionSettingsPage::kSettingsGroup);
-  scan_on_startup_ = s.value("startup_scan", true).toBool();
-  monitor_ = s.value("monitor", true).toBool();
-  const QStringList filters = s.value("cover_art_patterns", QStringList() << QStringLiteral("front") << QStringLiteral("cover")).toStringList();
+  s.beginGroup(CollectionSettings::kSettingsGroup);
   if (source_ == Song::Source::Collection) {
-    song_tracking_ = s.value("song_tracking", false).toBool();
-    song_ebur128_loudness_analysis_ = s.value("song_ebur128_loudness_analysis", false).toBool();
-    mark_songs_unavailable_ = song_tracking_ ? true : s.value("mark_songs_unavailable", true).toBool();
+    scan_on_startup_ = s.value(CollectionSettings::kStartupScan, true).toBool();
+    monitor_ = s.value(CollectionSettings::kMonitor, true).toBool();
+  }
+  else {
+    scan_on_startup_ = true;
+    monitor_ = true;
+  }
+  const QStringList filters = s.value(CollectionSettings::kCoverArtPatterns, QStringList() << u"front"_s << u"cover"_s).toStringList();
+  if (source_ == Song::Source::Collection) {
+    song_tracking_ = s.value(CollectionSettings::kSongTracking, false).toBool();
+    song_ebur128_loudness_analysis_ = s.value(CollectionSettings::kSongENUR128LoudnessAnalysis, false).toBool();
+    mark_songs_unavailable_ = song_tracking_ ? true : s.value(CollectionSettings::kMarkSongsUnavailable, true).toBool();
   }
   else {
     song_tracking_ = false;
     song_ebur128_loudness_analysis_ = false;
     mark_songs_unavailable_ = false;
   }
-  expire_unavailable_songs_days_ = s.value("expire_unavailable_songs", 60).toInt();
-  overwrite_playcount_ = s.value("overwrite_playcount", false).toBool();
-  overwrite_rating_ = s.value("overwrite_rating", false).toBool();
+  expire_unavailable_songs_days_ = s.value(CollectionSettings::kExpireUnavailableSongs, 60).toInt();
+  overwrite_playcount_ = s.value(CollectionSettings::kOverwritePlaycount, false).toBool();
+  overwrite_rating_ = s.value(CollectionSettings::kOverwriteRating, false).toBool();
   s.endGroup();
 
   best_art_filters_.clear();
@@ -234,11 +247,13 @@ void CollectionWatcher::ReloadSettings() {
     }
   }
 
-  if (monitor_ && scan_on_startup_ && mark_songs_unavailable_ && !periodic_scan_timer_->isActive()) {
-    periodic_scan_timer_->start();
-  }
-  else if ((!monitor_ || !scan_on_startup_ || !mark_songs_unavailable_) && periodic_scan_timer_->isActive()) {
-    periodic_scan_timer_->stop();
+  if (source_ == Song::Source::Collection) {
+    if (monitor_ && scan_on_startup_ && mark_songs_unavailable_ && !periodic_scan_timer_->isActive()) {
+      periodic_scan_timer_->start();
+    }
+    else if ((!monitor_ || !scan_on_startup_ || !mark_songs_unavailable_) && periodic_scan_timer_->isActive()) {
+      periodic_scan_timer_->stop();
+    }
   }
 
 }
@@ -451,6 +466,24 @@ CollectionSubdirectoryList CollectionWatcher::ScanTransaction::GetAllSubdirs() {
 
 void CollectionWatcher::AddDirectory(const CollectionDirectory &dir, const CollectionSubdirectoryList &subdirs) {
 
+  {
+    const QFileInfo path_info(dir.path);
+    if (path_info.isSymbolicLink()) {
+      const QStorageInfo storage_info(path_info.symLinkTarget());
+      if (kRejectedFileSystems.contains(storage_info.fileSystemType())) {
+        qLog(Warning) << "Ignoring collection directory path" << dir.path << "which is a symbolic link to path" << path_info.symLinkTarget() << "with rejected filesystem type" << storage_info.fileSystemType();
+        return;
+      }
+    }
+    else {
+      const QStorageInfo storage_info(dir.path);
+      if (kRejectedFileSystems.contains(storage_info.fileSystemType())) {
+        qLog(Warning) << "Ignoring collection directory path" << dir.path << "with rejected filesystem type" << storage_info.fileSystemType();
+        return;
+      }
+    }
+  }
+
   CancelStop();
 
   watched_dirs_[dir.id] = dir;
@@ -493,15 +526,27 @@ void CollectionWatcher::AddDirectory(const CollectionDirectory &dir, const Colle
 
 void CollectionWatcher::ScanSubdirectory(const QString &path, const CollectionSubdirectory &subdir, const quint64 files_count, ScanTransaction *t, const bool force_noincremental) {
 
-  QFileInfo path_info(path);
+  const QFileInfo path_info(path);
 
-  // Do not scan symlinked dirs that are already in collection
   if (path_info.isSymLink()) {
-    QString real_path = path_info.symLinkTarget();
+    const QString real_path = path_info.symLinkTarget();
+    const QStorageInfo storage_info(real_path);
+    if (kRejectedFileSystems.contains(storage_info.fileSystemType())) {
+      qLog(Warning) << "Ignoring symbolic link" << path << "which links to" << real_path << "with rejected filesystem type" << storage_info.fileSystemType();
+      return;
+    }
+    // Do not scan symlinked dirs that are already in collection
     for (const CollectionDirectory &dir : std::as_const(watched_dirs_)) {
       if (real_path.startsWith(dir.path)) {
         return;
       }
+    }
+  }
+  else {
+    const QStorageInfo storage_info(path);
+    if (kRejectedFileSystems.contains(storage_info.fileSystemType())) {
+      qLog(Warning) << "Ignoring path" << path << "with rejected filesystem type" << storage_info.fileSystemType();
+      return;
     }
   }
 
@@ -543,32 +588,40 @@ void CollectionWatcher::ScanSubdirectory(const QString &path, const CollectionSu
 
     if (stop_or_abort_requested()) return;
 
-    QString child(it.next());
-    QFileInfo child_info(child);
+    const QString child_filepath = it.next();
+    const QFileInfo child_fileinfo(child_filepath);
 
-    if (child_info.isDir()) {
-      if (!t->HasSeenSubdir(child)) {
+    if (child_fileinfo.isSymLink()) {
+      QStorageInfo storage_info(child_fileinfo.symLinkTarget());
+      if (kRejectedFileSystems.contains(storage_info.fileSystemType())) {
+        qLog(Warning) << "Ignoring symbolic link" << child_filepath << "which links to" << child_fileinfo.symLinkTarget() << "with rejected filesystem type" << storage_info.fileSystemType();
+        continue;
+      }
+    }
+
+    if (child_fileinfo.isDir()) {
+      if (!t->HasSeenSubdir(child_filepath)) {
         // We haven't seen this subdirectory before - add it to a list, and later we'll tell the backend about it and scan it.
         CollectionSubdirectory new_subdir;
         new_subdir.directory_id = -1;
-        new_subdir.path = child;
-        new_subdir.mtime = child_info.lastModified().toSecsSinceEpoch();
+        new_subdir.path = child_filepath;
+        new_subdir.mtime = child_fileinfo.lastModified().toSecsSinceEpoch();
         my_new_subdirs << new_subdir;
       }
       t->AddToProgress(1);
     }
     else {
-      QString ext_part(ExtensionPart(child));
-      QString dir_part(DirectoryPart(child));
-      if (Song::kRejectedExtensions.contains(child_info.suffix(), Qt::CaseInsensitive) || child_info.baseName() == "qt_temp"_L1) {
+      QString ext_part(ExtensionPart(child_filepath));
+      QString dir_part(DirectoryPart(child_filepath));
+      if (Song::kRejectedExtensions.contains(child_fileinfo.suffix(), Qt::CaseInsensitive) || child_fileinfo.baseName() == "qt_temp"_L1) {
         t->AddToProgress(1);
       }
       else if (sValidImages.contains(ext_part)) {
-        album_art[dir_part] << child;
+        album_art[dir_part] << child_filepath;
         t->AddToProgress(1);
       }
-      else if (TagReaderClient::Instance()->IsMediaFileBlocking(child)) {
-        files_on_disk << child;
+      else if (tagreader_client_->IsMediaFileBlocking(child_filepath)) {
+        files_on_disk << child_filepath;
       }
       else {
         t->AddToProgress(1);
@@ -801,7 +854,7 @@ void CollectionWatcher::UpdateCueAssociatedSongs(const QString &file,
                                                  const QString &matching_cue,
                                                  const QUrl &art_automatic,
                                                  const SongList &old_cue_songs,
-                                                 ScanTransaction *t) {
+                                                 ScanTransaction *t) const {
 
   QHash<quint64, Song> sections_map;
   for (const Song &song : old_cue_songs) {
@@ -815,7 +868,7 @@ void CollectionWatcher::UpdateCueAssociatedSongs(const QString &file,
     qLog(Error) << "Could not open CUE file" << matching_cue << "for reading:" << cue_file.errorString();
     return;
   }
-  const SongList songs = cue_parser_->Load(&cue_file, matching_cue, path, false);
+  const SongList songs = cue_parser_->Load(&cue_file, matching_cue, path, false).songs;
   cue_file.close();
 
   // Update every song that's in the CUE and collection
@@ -866,7 +919,7 @@ void CollectionWatcher::UpdateNonCueAssociatedSong(const QString &file,
   }
 
   Song song_on_disk(source_);
-  const TagReaderClient::Result result = TagReaderClient::Instance()->ReadFileBlocking(file, &song_on_disk);
+  const TagReaderResult result = tagreader_client_->ReadFileBlocking(file, &song_on_disk);
   if (result.success() && song_on_disk.is_valid()) {
     song_on_disk.set_source(source_);
     song_on_disk.set_directory_id(t->dir());
@@ -880,7 +933,7 @@ void CollectionWatcher::UpdateNonCueAssociatedSong(const QString &file,
 
 }
 
-SongList CollectionWatcher::ScanNewFile(const QString &file, const QString &path, const QString &fingerprint, const QString &matching_cue, QSet<QString> *cues_processed) {
+SongList CollectionWatcher::ScanNewFile(const QString &file, const QString &path, const QString &fingerprint, const QString &matching_cue, QSet<QString> *cues_processed) const {
 
   SongList songs;
 
@@ -902,10 +955,10 @@ SongList CollectionWatcher::ScanNewFile(const QString &file, const QString &path
     // Also, watch out for incorrect media files.
     // Playlist parser for CUEs considers every entry in sheet valid, and we don't want invalid media getting into collection!
     QString file_nfd = file.normalized(QString::NormalizationForm_D);
-    SongList cue_congs = cue_parser_->Load(&cue_file, matching_cue, path, false);
+    SongList cue_songs = cue_parser_->Load(&cue_file, matching_cue, path, false).songs;
     cue_file.close();
-    songs.reserve(cue_congs.count());
-    for (Song &cue_song : cue_congs) {
+    songs.reserve(cue_songs.count());
+    for (Song &cue_song : cue_songs) {
       cue_song.set_source(source_);
       PerformEBUR128Analysis(cue_song);
       cue_song.set_fingerprint(fingerprint);
@@ -919,7 +972,7 @@ SongList CollectionWatcher::ScanNewFile(const QString &file, const QString &path
   }
   else {  // It's a normal media file
     Song song(source_);
-    const TagReaderClient::Result result = TagReaderClient::Instance()->ReadFileBlocking(file, &song);
+    const TagReaderResult result = tagreader_client_->ReadFileBlocking(file, &song);
     if (result.success() && song.is_valid()) {
       song.set_source(source_);
       PerformEBUR128Analysis(song);
@@ -943,43 +996,43 @@ void CollectionWatcher::AddChangedSong(const QString &file, const Song &matching
   }
   else {
     if (matching_song.url() != new_song.url()) {
-      changes << QStringLiteral("file path");
+      changes << u"file path"_s;
       notify_new = true;
     }
     if (matching_song.fingerprint() != new_song.fingerprint()) {
-      changes << QStringLiteral("fingerprint");
+      changes << u"fingerprint"_s;
       notify_new = true;
     }
     if (!matching_song.IsMetadataEqual(new_song)) {
-      changes << QStringLiteral("metadata");
+      changes << u"metadata"_s;
       notify_new = true;
     }
     if (!matching_song.IsPlayStatisticsEqual(new_song)) {
-      changes << QStringLiteral("play statistics");
+      changes << u"play statistics"_s;
       notify_new = true;
     }
     if (!matching_song.IsRatingEqual(new_song)) {
-      changes << QStringLiteral("rating");
+      changes << u"rating"_s;
       notify_new = true;
     }
     if (!matching_song.IsArtEqual(new_song)) {
-      changes << QStringLiteral("album art");
+      changes << u"album art"_s;
       notify_new = true;
     }
     if (!matching_song.IsAcoustIdEqual(new_song)) {
-      changes << QStringLiteral("acoustid");
+      changes << u"acoustid"_s;
       notify_new = true;
     }
     if (!matching_song.IsMusicBrainzEqual(new_song)) {
-      changes << QStringLiteral("musicbrainz");
+      changes << u"musicbrainz"_s;
       notify_new = true;
     }
     if (!matching_song.IsEBUR128Equal(new_song)) {
-      changes << QStringLiteral("ebur128 loudness characteristics");
+      changes << u"ebur128 loudness characteristics"_s;
       notify_new = true;
     }
     if (matching_song.mtime() != new_song.mtime()) {
-      changes << QStringLiteral("mtime");
+      changes << u"mtime"_s;
     }
 
     if (changes.isEmpty()) {
@@ -1010,6 +1063,8 @@ void CollectionWatcher::PerformEBUR128Analysis(Song &song) const {
     song.set_ebur128_integrated_loudness_lufs(loudness_characteristics->loudness_lufs);
     song.set_ebur128_loudness_range_lu(loudness_characteristics->range_lu);
   }
+#else
+  Q_UNUSED(song)
 #endif
 
 }
@@ -1028,6 +1083,7 @@ quint64 CollectionWatcher::GetMtimeForCue(const QString &cue_path) {
   const QDateTime cue_last_modified = fileinfo.lastModified();
 
   return cue_last_modified.isValid() ? cue_last_modified.toSecsSinceEpoch() : 0;
+
 }
 
 void CollectionWatcher::AddWatch(const CollectionDirectory &dir, const QString &path) {
@@ -1083,7 +1139,7 @@ bool CollectionWatcher::FindSongsByFingerprint(const QString &file, const QStrin
   for (const Song &song : songs) {
     QString filename = song.url().toLocalFile();
     QFileInfo info(filename);
-    // Allow mulitiple songs in different directories with the same fingerprint.
+    // Allow multiple songs in different directories with the same fingerprint.
     // Only use the matching song by fingerprint if it doesn't already exist in a different path.
     if (file == filename || !info.exists()) {
       *out << song;
@@ -1115,7 +1171,7 @@ void CollectionWatcher::DirectoryChanged(const QString &subdir) {
   if (it == subdir_mapping_.constEnd()) {
     return;
   }
-  CollectionDirectory dir = *it;
+  const CollectionDirectory dir = *it;
 
   qLog(Debug) << "Subdir" << subdir << "changed under directory" << dir.path << "id" << dir.id;
 
@@ -1137,7 +1193,7 @@ void CollectionWatcher::RescanPathsNow() {
 
     QMap<QString, quint64> subdir_files_count;
     for (const QString &path : paths) {
-      quint64 files_count = FilesCountForPath(&transaction, path);
+      const quint64 files_count = FilesCountForPath(&transaction, path);
       subdir_files_count[path] = files_count;
       transaction.AddToProgressMax(files_count);
     }
@@ -1300,18 +1356,45 @@ void CollectionWatcher::PerformScan(const bool incremental, const bool ignore_mt
 
 quint64 CollectionWatcher::FilesCountForPath(ScanTransaction *t, const QString &path) {
 
+  const QFileInfo path_info(path);
+  if (path_info.isSymLink()) {
+    const QString real_path = path_info.symLinkTarget();
+    const QStorageInfo storage_info(real_path);
+    if (kRejectedFileSystems.contains(storage_info.fileSystemType())) {
+      return 0;
+    }
+    for (const CollectionDirectory &dir : std::as_const(watched_dirs_)) {
+      if (real_path.startsWith(dir.path)) {
+        return 0;
+      }
+    }
+  }
+  else {
+    const QStorageInfo storage_info(path);
+    if (kRejectedFileSystems.contains(storage_info.fileSystemType())) {
+      return 0;
+    }
+  }
+
   quint64 i = 0;
   QDirIterator it(path, QDir::Dirs | QDir::Files | QDir::NoDotAndDotDot);
   while (it.hasNext()) {
 
     if (stop_or_abort_requested()) break;
 
-    QString child = it.next();
-    QFileInfo path_info(child);
+    const QString child_filepath = it.next();
+    const QFileInfo child_fileinfo(child_filepath);
 
-    if (path_info.isDir()) {
-      if (path_info.isSymLink()) {
-        QString real_path = path_info.symLinkTarget();
+    if (child_fileinfo.isDir()) {
+      if (child_fileinfo.isSymLink()) {
+
+        const QString real_path = child_fileinfo.symLinkTarget();
+
+        QStorageInfo storage_info(real_path);
+        if (kRejectedFileSystems.contains(storage_info.fileSystemType())) {
+          continue;
+        }
+
         for (const CollectionDirectory &dir : std::as_const(watched_dirs_)) {
           if (real_path.startsWith(dir.path)) {
             continue;
@@ -1319,9 +1402,9 @@ quint64 CollectionWatcher::FilesCountForPath(ScanTransaction *t, const QString &
         }
       }
 
-      if (!t->HasSeenSubdir(child) && !path_info.isHidden()) {
+      if (!t->HasSeenSubdir(child_filepath) && !child_fileinfo.isHidden()) {
         // We haven't seen this subdirectory before, so we need to include the file count for this directory too.
-        i += FilesCountForPath(t, child);
+        i += FilesCountForPath(t, child_filepath);
       }
 
     }
@@ -1369,7 +1452,7 @@ void CollectionWatcher::RescanSongs(const SongList &songs) {
       if (stop_or_abort_requested()) break;
       if (subdir.path != song_path) continue;
       qLog(Debug) << "Rescan for directory ID" << song.directory_id() << "directory" << subdir.path;
-      quint64 files_count = FilesCountForPath(&transaction, subdir.path);
+      const quint64 files_count = FilesCountForPath(&transaction, subdir.path);
       ScanSubdirectory(song_path, subdir, files_count, &transaction);
       scanned_paths << subdir.path;
     }

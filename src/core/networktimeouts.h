@@ -23,7 +23,6 @@
 
 #include "config.h"
 
-#include <QtGlobal>
 #include <QObject>
 #include <QHash>
 
@@ -37,7 +36,7 @@ class NetworkTimeouts : public QObject {
   explicit NetworkTimeouts(const int timeout_msec, QObject *parent = nullptr);
 
   void AddReply(QNetworkReply *reply);
-  void SetTimeout(int msec) { timeout_msec_ = msec; }
+  void SetTimeout(const int msec) { timeout_msec_ = msec; }
 
  protected:
   void timerEvent(QTimerEvent *e) override;

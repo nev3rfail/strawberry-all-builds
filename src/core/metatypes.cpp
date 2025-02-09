@@ -23,35 +23,30 @@
 
 #include "metatypes.h"
 
-#ifdef HAVE_GSTREAMER
-#  include <gst/gstbuffer.h>
-#  include <gst/gstelement.h>
-#endif
+#include <gst/gstbuffer.h>
+#include <gst/gstelement.h>
 
-#include <QDataStream>
 #include <QAbstractSocket>
 #include <QMetaType>
 #include <QFileInfo>
 #include <QList>
-#include <QVector>
 #include <QMap>
 #include <QByteArray>
 #include <QUrl>
+#include <QDataStream>
 #include <QImage>
 #include <QNetworkReply>
 #include <QItemSelection>
+
 #ifdef HAVE_DBUS
 #  include <QDBusMetaType>
 #  include <QDBusArgument>
 #endif
 
-#include "song.h"
-
+#include "core/song.h"
+#include "core/enginemetadata.h"
 #include "engine/enginebase.h"
-#include "engine/enginemetadata.h"
-#ifdef HAVE_GSTREAMER
-#  include "engine/gstenginepipeline.h"
-#endif
+#include "engine/gstenginepipeline.h"
 #include "collection/collectiondirectory.h"
 #include "playlist/playlistitem.h"
 #include "playlist/playlistsequence.h"
@@ -61,9 +56,11 @@
 #include "equalizer/equalizer.h"
 
 #ifdef HAVE_DBUS
-#  include "mpris2.h"
-#  include "osd/osddbus.h"
-#  include "dbus/metatypes.h"
+#  include "includes/dbus_metatypes.h"
+#endif
+
+#ifdef HAVE_MPRIS2
+#  include "mpris2/mpris2.h"
 #endif
 
 #include "streaming/streamingsearchview.h"
@@ -72,22 +69,26 @@
 
 #include "radios/radiochannel.h"
 
-#ifdef HAVE_LIBMTP
+#ifdef HAVE_MTP
 #  include "device/mtpconnection.h"
 #endif
 
-#include "settings/playlistsettingspage.h"
+#include "constants/playlistsettings.h"
 
 #include "smartplaylists/smartplaylistsearchterm.h"
 #include "smartplaylists/smartplaylistsitem.h"
 
 #include "lyrics/lyricssearchresult.h"
 
+#ifdef HAVE_DBUS
+QDBusArgument &operator<<(QDBusArgument &arg, const QImage &image);
+const QDBusArgument &operator>>(const QDBusArgument &arg, QImage &image);
+#endif
+
 void RegisterMetaTypes() {
 
   qRegisterMetaType<const char*>("const char*");
   qRegisterMetaType<QList<int>>("QList<int>");
-  qRegisterMetaType<QVector<int>>("QVector<int>");
   qRegisterMetaType<QList<QUrl>>("QList<QUrl>");
   qRegisterMetaType<QFileInfo>("QFileInfo");
   qRegisterMetaType<QAbstractSocket::SocketState>("QAbstractSocket::SocketState");
@@ -101,17 +102,14 @@ void RegisterMetaTypes() {
   qRegisterMetaType<SongMap>("SongMap");
   qRegisterMetaType<Song::Source>("Song::Source");
   qRegisterMetaType<Song::FileType>("Song::FileType");
-  qRegisterMetaType<EngineBase::Type>("EngineBase::Type");
   qRegisterMetaType<EngineBase::State>("EngineBase::State");
   qRegisterMetaType<EngineBase::TrackChangeFlags>("EngineBase::TrackChangeFlags");
   qRegisterMetaType<EngineBase::OutputDetails>("EngineBase::OutputDetails");
   qRegisterMetaType<EngineMetadata>("EngineMetadata");
-#ifdef HAVE_GSTREAMER
   qRegisterMetaType<GstBuffer*>("GstBuffer*");
   qRegisterMetaType<GstElement*>("GstElement*");
   qRegisterMetaType<GstState>("GstState");
   qRegisterMetaType<GstEnginePipeline*>("GstEnginePipeline*");
-#endif
   qRegisterMetaType<CollectionDirectory>("CollectionDirectory");
   qRegisterMetaType<CollectionDirectoryList>("CollectionDirectoryList");
   qRegisterMetaType<CollectionSubdirectory>("CollectionSubdirectory");
@@ -132,13 +130,15 @@ void RegisterMetaTypes() {
 #ifdef HAVE_DBUS
   qDBusRegisterMetaType<QByteArrayList>();
   qDBusRegisterMetaType<QImage>();
+  qDBusRegisterMetaType<InterfacesAndProperties>();
+  qDBusRegisterMetaType<ManagedObjectList>();
+#  ifdef HAVE_MPRIS2
   qDBusRegisterMetaType<TrackMetadata>();
   qDBusRegisterMetaType<Track_Ids>();
   qDBusRegisterMetaType<MprisPlaylist>();
   qDBusRegisterMetaType<MprisPlaylistList>();
   qDBusRegisterMetaType<MaybePlaylist>();
-  qDBusRegisterMetaType<InterfacesAndProperties>();
-  qDBusRegisterMetaType<ManagedObjectList>();
+#  endif
 #endif
 
   qRegisterMetaType<StreamingSearchView::Result>("StreamingSearchView::Result");
@@ -147,11 +147,11 @@ void RegisterMetaTypes() {
   qRegisterMetaType<RadioChannel>("RadioChannel");
   qRegisterMetaType<RadioChannelList>("RadioChannelList");
 
-#ifdef HAVE_LIBMTP
+#ifdef HAVE_MTP
   qRegisterMetaType<MtpConnection*>("MtpConnection*");
 #endif
 
-  qRegisterMetaType<PlaylistSettingsPage::PathType>("PlaylistSettingsPage::PathType");
+  qRegisterMetaType<PlaylistSettings::PathType>("PlaylistSettings::PathType");
 
   qRegisterMetaType<PlaylistGeneratorPtr>("PlaylistGeneratorPtr");
   qRegisterMetaType<SmartPlaylistSearchTerm::Field>("SmartPlaylistSearchTerm::Field");

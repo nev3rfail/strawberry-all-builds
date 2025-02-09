@@ -27,29 +27,31 @@
 #include <QString>
 #include <QIcon>
 #include <QSize>
-#include <QStandardPaths>
 #include <QSettings>
 
-#include "core/logging.h"
+#include "logging.h"
+#include "standardpaths.h"
 #include "settings.h"
-#include "iconmapper.h"
-#include "settings/appearancesettingspage.h"
+#include "includes/iconmapper.h"
 #include "iconloader.h"
+#include "constants/appearancesettings.h"
+
+using namespace Qt::Literals::StringLiterals;
 
 bool IconLoader::system_icons_ = false;
 bool IconLoader::custom_icons_ = false;
 
 void IconLoader::Init() {
 
-#if !defined(Q_OS_MACOS) && !defined(Q_OS_WIN)
+#if !defined(Q_OS_MACOS) && !defined(Q_OS_WIN32)
   Settings s;
-  s.beginGroup(AppearanceSettingsPage::kSettingsGroup);
+  s.beginGroup(AppearanceSettings::kSettingsGroup);
   system_icons_ = s.value("system_icons", false).toBool();
   s.endGroup();
 #endif
 
   QDir dir;
-  if (dir.exists(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + QStringLiteral("/icons"))) {
+  if (dir.exists(StandardPaths::WritableLocation(StandardPaths::StandardLocation::AppLocalDataLocation) + u"/icons"_s)) {
     custom_icons_ = true;
   }
 
@@ -123,7 +125,7 @@ QIcon IconLoader::Load(const QString &name, const bool system_icon, const int fi
   }
 
   if (custom_icons_) {
-    QString custom_icon_path = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + QStringLiteral("/icons/%1x%2/%3.png");
+    QString custom_icon_path = StandardPaths::WritableLocation(StandardPaths::StandardLocation::AppLocalDataLocation) + u"/icons/%1x%2/%3.png"_s;
     for (int s : std::as_const(sizes)) {
       QString filename(custom_icon_path.arg(s).arg(s).arg(name));
       if (QFile::exists(filename)) ret.addFile(filename, QSize(s, s));
@@ -132,7 +134,7 @@ QIcon IconLoader::Load(const QString &name, const bool system_icon, const int fi
     qLog(Warning) << "Couldn't load icon" << name << "from custom icons.";
   }
 
-  const QString path(QStringLiteral(":/icons/%1x%2/%3.png"));
+  const QString path(u":/icons/%1x%2/%3.png"_s);
   for (int s : std::as_const(sizes)) {
     QString filename(path.arg(s).arg(s).arg(name));
     if (QFile::exists(filename)) ret.addFile(filename, QSize(s, s));

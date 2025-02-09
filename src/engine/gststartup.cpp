@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2018-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2024, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,57 +25,26 @@
 #include <gst/gst.h>
 #include <gst/pbutils/pbutils.h>
 
-#include <QObject>
-#include <QMetaObject>
 #include <QCoreApplication>
-#include <QStandardPaths>
-#include <QtConcurrentRun>
 #include <QString>
 #include <QDir>
 #include <QFile>
-#include <QAbstractEventDispatcher>
 
 #include "core/logging.h"
+#include "core/standardpaths.h"
 #include "utilities/envutils.h"
 
 #ifdef HAVE_MOODBAR
-#  include "moodbar/gstfastspectrumplugin.h"
+#  include "gstfastspectrumplugin.h"
 #endif
 
 #include "gststartup.h"
 
 using namespace Qt::Literals::StringLiterals;
 
-GThread *GstStartup::kGThread = nullptr;
+namespace GstStartup {
 
-gpointer GstStartup::GLibMainLoopThreadFunc(gpointer) {
-
-  qLog(Info) << "Creating GLib main event loop.";
-
-  GMainLoop *gloop = g_main_loop_new(nullptr, false);
-  g_main_loop_run(gloop);
-  g_main_loop_unref(gloop);
-
-  return nullptr;
-
-}
-
-GstStartup::GstStartup(QObject *parent) : QObject(parent) {
-
-  initializing_ = QtConcurrent::run(&GstStartup::InitializeGStreamer);
-
-  const QMetaObject *mo = QAbstractEventDispatcher::instance(qApp->thread())->metaObject();
-  if (mo && strcmp(mo->className(), "QEventDispatcherGlib") != 0 && strcmp(mo->superClass()->className(), "QEventDispatcherGlib") != 0) {
-    kGThread = g_thread_new(nullptr, GstStartup::GLibMainLoopThreadFunc, nullptr);
-  }
-
-}
-
-GstStartup::~GstStartup() {
-  if (kGThread) g_thread_unref(kGThread);
-}
-
-void GstStartup::InitializeGStreamer() {
+void Initialize() {
 
   SetEnvironment();
 
@@ -108,7 +77,7 @@ void GstStartup::InitializeGStreamer() {
 
 }
 
-void GstStartup::SetEnvironment() {
+void SetEnvironment() {
 
 #ifdef USE_BUNDLE
 
@@ -175,11 +144,12 @@ void GstStartup::SetEnvironment() {
 
 #endif  // USE_BUNDLE
 
-
 #if defined(Q_OS_WIN32) || defined(Q_OS_MACOS)
-  QString gst_registry_filename = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + QStringLiteral("/gst-registry-%1-bin").arg(QCoreApplication::applicationVersion());
+  QString gst_registry_filename = StandardPaths::WritableLocation(StandardPaths::StandardLocation::AppLocalDataLocation) + QStringLiteral("/gst-registry-%1-bin").arg(QCoreApplication::applicationVersion());
   qLog(Debug) << "Setting GStreamer registry file to" << gst_registry_filename;
   Utilities::SetEnv("GST_REGISTRY", gst_registry_filename);
 #endif
 
 }
+
+}  // namespace GstStartup

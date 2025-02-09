@@ -25,7 +25,6 @@
 #include <memory>
 
 #include <QtGlobal>
-#include <QWidget>
 #include <QAbstractItemView>
 #include <QTreeView>
 #include <QItemSelectionModel>
@@ -46,24 +45,27 @@
 #include <QAction>
 #include <QMessageBox>
 #include <QSettings>
-#include <QtEvents>
+#include <QPaintEvent>
+#include <QMouseEvent>
+#include <QKeyEvent>
+#include <QContextMenuEvent>
 
-#include "core/application.h"
 #include "core/iconloader.h"
 #include "core/mimedata.h"
 #include "core/musicstorage.h"
 #include "core/deletefiles.h"
 #include "core/settings.h"
 #include "utilities/filemanagerutils.h"
-#include "collection.h"
+#include "collectionlibrary.h"
 #include "collectionbackend.h"
 #include "collectiondirectorymodel.h"
+#include "collectionmodel.h"
+#include "collectionfilter.h"
 #include "collectionfilterwidget.h"
 #include "collectionitem.h"
 #include "collectionitemdelegate.h"
-#include "collectionmodel.h"
 #include "collectionview.h"
-#ifndef Q_OS_WIN
+#ifndef Q_OS_WIN32
 #  include "device/devicemanager.h"
 #  include "device/devicestatefiltermodel.h"
 #endif
@@ -71,18 +73,20 @@
 #include "dialogs/deleteconfirmationdialog.h"
 #include "organize/organizedialog.h"
 #include "organize/organizeerrordialog.h"
-#include "settings/collectionsettingspage.h"
+#include "constants/collectionsettings.h"
 
 using std::make_unique;
+using namespace Qt::Literals::StringLiterals;
 
 CollectionView::CollectionView(QWidget *parent)
     : AutoExpandingTreeView(parent),
-      app_(nullptr),
+      model_(nullptr),
       filter_(nullptr),
+      filter_widget_(nullptr),
       total_song_count_(-1),
       total_artist_count_(-1),
       total_album_count_(-1),
-      nomusic_(QStringLiteral(":/pictures/nomusic.png")),
+      nomusic_(u":/pictures/nomusic.png"_s),
       context_menu_(nullptr),
       action_load_(nullptr),
       action_add_to_playlist_(nullptr),
@@ -91,7 +95,7 @@ CollectionView::CollectionView(QWidget *parent)
       action_open_in_new_playlist_(nullptr),
       action_organize_(nullptr),
       action_search_for_this_(nullptr),
-#ifndef Q_OS_WIN
+#ifndef Q_OS_WIN32
       action_copy_to_device_(nullptr),
 #endif
       action_edit_track_(nullptr),
@@ -104,7 +108,7 @@ CollectionView::CollectionView(QWidget *parent)
       is_in_keyboard_search_(false),
       delete_files_(false) {
 
-  setObjectName(QLatin1String(metaObject()->className()));
+  setObjectName(QLatin1String(QObject::metaObject()->className()));
 
   setItemDelegate(new CollectionItemDelegate(this));
   setAttribute(Qt::WA_MacShowFocusRect, false);
@@ -114,11 +118,40 @@ CollectionView::CollectionView(QWidget *parent)
   setDragDropMode(QAbstractItemView::DragOnly);
   setSelectionMode(QAbstractItemView::ExtendedSelection);
 
-  setStyleSheet(QStringLiteral("QTreeView::item{padding-top:1px;}"));
+  setStyleSheet(u"QTreeView::item{padding-top:1px;}"_s);
 
 }
 
 CollectionView::~CollectionView() = default;
+
+void CollectionView::Init(const SharedPtr<TaskManager> task_manager,
+                          const SharedPtr<TagReaderClient> tagreader_client,
+                          const SharedPtr<NetworkAccessManager> network,
+                          const SharedPtr<AlbumCoverLoader> albumcover_loader,
+                          const SharedPtr<CurrentAlbumCoverLoader> current_albumcover_loader,
+                          const SharedPtr<CoverProviders> cover_providers,
+                          const SharedPtr<LyricsProviders> lyrics_providers,
+                          const SharedPtr<CollectionLibrary> collection,
+                          const SharedPtr<DeviceManager> device_manager,
+                          const SharedPtr<StreamingServices> streaming_services) {
+
+  task_manager_ = task_manager;
+  tagreader_client_ = tagreader_client;
+  network_ = network;
+  albumcover_loader_ = albumcover_loader;
+  current_albumcover_loader_ = current_albumcover_loader;
+  cover_providers_ = cover_providers;
+  lyrics_providers_ = lyrics_providers;
+  collection_ = collection;
+  device_manager_ = device_manager;
+  streaming_services_ = streaming_services;
+  backend_ = collection_->backend();
+  model_ = collection_->model();
+  filter_ = collection_->model()->filter();
+
+  ReloadSettings();
+
+}
 
 void CollectionView::SaveFocus() {
 
@@ -139,8 +172,8 @@ void CollectionView::SaveFocus() {
 
   switch (item_type) {
     case CollectionItem::Type::Song:{
-      QModelIndex index = qobject_cast<QSortFilterProxyModel*>(model())->mapToSource(current);
-      SongList songs = app_->collection_model()->GetChildSongs(index);
+      QModelIndex index = filter_->mapToSource(current);
+      SongList songs = model_->GetChildSongs(index);
       if (!songs.isEmpty()) {
         last_selected_song_ = songs.last();
       }
@@ -207,8 +240,8 @@ bool CollectionView::RestoreLevelFocus(const QModelIndex &parent) {
         break;
       case CollectionItem::Type::Song:
         if (!last_selected_song_.url().isEmpty()) {
-          QModelIndex index = qobject_cast<QSortFilterProxyModel*>(model())->mapToSource(current);
-          const SongList songs = app_->collection_model()->GetChildSongs(index);
+          QModelIndex index = filter_->mapToSource(current);
+          const SongList songs = model_->GetChildSongs(index);
           if (std::any_of(songs.begin(), songs.end(), [this](const Song &song) { return song == last_selected_song_; })) {
             setCurrentIndex(current);
             return true;
@@ -238,6 +271,7 @@ bool CollectionView::RestoreLevelFocus(const QModelIndex &parent) {
       }
     }
   }
+
   return false;
 
 }
@@ -245,22 +279,14 @@ bool CollectionView::RestoreLevelFocus(const QModelIndex &parent) {
 void CollectionView::ReloadSettings() {
 
   Settings settings;
-  settings.beginGroup(CollectionSettingsPage::kSettingsGroup);
-  SetAutoOpen(settings.value("auto_open", false).toBool());
-  delete_files_ = settings.value("delete_files", false).toBool();
+  settings.beginGroup(CollectionSettings::kSettingsGroup);
+  SetAutoOpen(settings.value(CollectionSettings::kAutoOpen, false).toBool());
+  delete_files_ = settings.value(CollectionSettings::kDeleteFiles, false).toBool();
   settings.endGroup();
 
 }
 
-void CollectionView::SetApplication(Application *app) {
-
-  app_ = app;
-
-  ReloadSettings();
-
-}
-
-void CollectionView::SetFilter(CollectionFilterWidget *filter) { filter_ = filter; }
+void CollectionView::SetFilterWidget(CollectionFilterWidget *filter_widget) { filter_widget_ = filter_widget; }
 
 void CollectionView::TotalSongCountUpdated(const int count) {
 
@@ -350,7 +376,7 @@ void CollectionView::mouseReleaseEvent(QMouseEvent *e) {
   QTreeView::mouseReleaseEvent(e);
 
   if (total_song_count_ == 0) {
-    Q_EMIT ShowConfigDialog();
+    Q_EMIT ShowSettingsDialog();
   }
 
 }
@@ -377,29 +403,29 @@ void CollectionView::contextMenuEvent(QContextMenuEvent *e) {
 
   if (!context_menu_) {
     context_menu_ = new QMenu(this);
-    action_add_to_playlist_ = context_menu_->addAction(IconLoader::Load(QStringLiteral("media-playback-start")), tr("Append to current playlist"), this, &CollectionView::AddToPlaylist);
-    action_load_ = context_menu_->addAction(IconLoader::Load(QStringLiteral("media-playback-start")), tr("Replace current playlist"), this, &CollectionView::Load);
-    action_open_in_new_playlist_ = context_menu_->addAction(IconLoader::Load(QStringLiteral("document-new")), tr("Open in new playlist"), this, &CollectionView::OpenInNewPlaylist);
+    action_add_to_playlist_ = context_menu_->addAction(IconLoader::Load(u"media-playback-start"_s), tr("Append to current playlist"), this, &CollectionView::AddToPlaylist);
+    action_load_ = context_menu_->addAction(IconLoader::Load(u"media-playback-start"_s), tr("Replace current playlist"), this, &CollectionView::Load);
+    action_open_in_new_playlist_ = context_menu_->addAction(IconLoader::Load(u"document-new"_s), tr("Open in new playlist"), this, &CollectionView::OpenInNewPlaylist);
 
     context_menu_->addSeparator();
-    action_add_to_playlist_enqueue_ = context_menu_->addAction(IconLoader::Load(QStringLiteral("go-next")), tr("Queue track"), this, &CollectionView::AddToPlaylistEnqueue);
-    action_add_to_playlist_enqueue_next_ = context_menu_->addAction(IconLoader::Load(QStringLiteral("go-next")), tr("Queue to play next"), this, &CollectionView::AddToPlaylistEnqueueNext);
+    action_add_to_playlist_enqueue_ = context_menu_->addAction(IconLoader::Load(u"go-next"_s), tr("Queue track"), this, &CollectionView::AddToPlaylistEnqueue);
+    action_add_to_playlist_enqueue_next_ = context_menu_->addAction(IconLoader::Load(u"go-next"_s), tr("Queue to play next"), this, &CollectionView::AddToPlaylistEnqueueNext);
 
     context_menu_->addSeparator();
 
-    action_search_for_this_ = context_menu_->addAction(IconLoader::Load(QStringLiteral("edit-find")), tr("Search for this"), this, &CollectionView::SearchForThis);
+    action_search_for_this_ = context_menu_->addAction(IconLoader::Load(u"edit-find"_s), tr("Search for this"), this, &CollectionView::SearchForThis);
 
     context_menu_->addSeparator();
-    action_organize_ = context_menu_->addAction(IconLoader::Load(QStringLiteral("edit-copy")), tr("Organize files..."), this, &CollectionView::Organize);
-#ifndef Q_OS_WIN
-    action_copy_to_device_ = context_menu_->addAction(IconLoader::Load(QStringLiteral("device")), tr("Copy to device..."), this, &CollectionView::CopyToDevice);
+    action_organize_ = context_menu_->addAction(IconLoader::Load(u"edit-copy"_s), tr("Organize files..."), this, &CollectionView::Organize);
+#ifndef Q_OS_WIN32
+    action_copy_to_device_ = context_menu_->addAction(IconLoader::Load(u"device"_s), tr("Copy to device..."), this, &CollectionView::CopyToDevice);
 #endif
-    action_delete_files_ = context_menu_->addAction(IconLoader::Load(QStringLiteral("edit-delete")), tr("Delete from disk..."), this, &CollectionView::Delete);
+    action_delete_files_ = context_menu_->addAction(IconLoader::Load(u"edit-delete"_s), tr("Delete from disk..."), this, &CollectionView::Delete);
 
     context_menu_->addSeparator();
-    action_edit_track_ = context_menu_->addAction(IconLoader::Load(QStringLiteral("edit-rename")), tr("Edit track information..."), this, &CollectionView::EditTracks);
-    action_edit_tracks_ = context_menu_->addAction(IconLoader::Load(QStringLiteral("edit-rename")), tr("Edit tracks information..."), this, &CollectionView::EditTracks);
-    action_show_in_browser_ = context_menu_->addAction(IconLoader::Load(QStringLiteral("document-open-folder")), tr("Show in file browser..."), this, &CollectionView::ShowInBrowser);
+    action_edit_track_ = context_menu_->addAction(IconLoader::Load(u"edit-rename"_s), tr("Edit track information..."), this, &CollectionView::EditTracks);
+    action_edit_tracks_ = context_menu_->addAction(IconLoader::Load(u"edit-rename"_s), tr("Edit tracks information..."), this, &CollectionView::EditTracks);
+    action_show_in_browser_ = context_menu_->addAction(IconLoader::Load(u"document-open-folder"_s), tr("Show in file browser..."), this, &CollectionView::ShowInBrowser);
 
     context_menu_->addSeparator();
 
@@ -411,11 +437,11 @@ void CollectionView::contextMenuEvent(QContextMenuEvent *e) {
 
     context_menu_->addSeparator();
 
-    context_menu_->addMenu(filter_->menu());
+    context_menu_->addMenu(filter_widget_->menu());
 
-#ifndef Q_OS_WIN
-    action_copy_to_device_->setDisabled(app_->device_manager()->connected_devices_model()->rowCount() == 0);
-    QObject::connect(app_->device_manager()->connected_devices_model(), &DeviceStateFilterModel::IsEmptyChanged, action_copy_to_device_, &QAction::setDisabled);
+#ifndef Q_OS_WIN32
+    action_copy_to_device_->setDisabled(device_manager_->connected_devices_model()->rowCount() == 0);
+    QObject::connect(device_manager_->connected_devices_model(), &DeviceStateFilterModel::IsEmptyChanged, action_copy_to_device_, &QAction::setDisabled);
 #endif
 
   }
@@ -423,16 +449,16 @@ void CollectionView::contextMenuEvent(QContextMenuEvent *e) {
   context_menu_index_ = indexAt(e->pos());
   if (!context_menu_index_.isValid()) return;
 
-  context_menu_index_ = qobject_cast<QSortFilterProxyModel*>(model())->mapToSource(context_menu_index_);
+  context_menu_index_ = filter_->mapToSource(context_menu_index_);
 
-  const QModelIndexList selected_indexes = qobject_cast<QSortFilterProxyModel*>(model())->mapSelectionToSource(selectionModel()->selection()).indexes();
+  const QModelIndexList selected_indexes = filter_->mapSelectionToSource(selectionModel()->selection()).indexes();
 
   int regular_elements = 0;
   int regular_editable = 0;
 
   for (const QModelIndex &idx : selected_indexes) {
     ++regular_elements;
-    if (app_->collection_model()->data(idx, CollectionModel::Role_Editable).toBool()) {
+    if (model_->data(idx, CollectionModel::Role_Editable).toBool()) {
       ++regular_editable;
     }
   }
@@ -455,7 +481,7 @@ void CollectionView::contextMenuEvent(QContextMenuEvent *e) {
   action_rescan_songs_->setEnabled(regular_editable > 0);
 
   action_organize_->setVisible(regular_elements == regular_editable);
-#ifndef Q_OS_WIN
+#ifndef Q_OS_WIN32
   action_copy_to_device_->setVisible(regular_elements == regular_editable);
 #endif
 
@@ -466,7 +492,7 @@ void CollectionView::contextMenuEvent(QContextMenuEvent *e) {
 
   // only when all selected items are editable
   action_organize_->setEnabled(regular_elements == regular_editable);
-#ifndef Q_OS_WIN
+#ifndef Q_OS_WIN32
   action_copy_to_device_->setEnabled(regular_elements == regular_editable);
 #endif
 
@@ -499,7 +525,7 @@ void CollectionView::SetShowInVarious(const bool on) {
   if (on && albums.keys().count() == 1) {
     const QStringList albums_list = albums.keys();
     const QString album = albums_list.first();
-    const SongList all_of_album = app_->collection_backend()->GetSongsByAlbum(album);
+    const SongList all_of_album = backend_->GetSongsByAlbum(album);
     QSet<QString> other_artists;
     for (const Song &s : all_of_album) {
       if (!albums.contains(album, s.artist()) && !other_artists.contains(s.artist())) {
@@ -517,7 +543,7 @@ void CollectionView::SetShowInVarious(const bool on) {
 
   const QSet<QString> albums_set = QSet<QString>(albums.keyBegin(), albums.keyEnd());
   for (const QString &album : albums_set) {
-    app_->collection_backend()->ForceCompilation(album, albums.values(album), on);
+    backend_->ForceCompilation(album, albums.values(album), on);
   }
 
 }
@@ -581,11 +607,12 @@ void CollectionView::SearchForThis() {
     return;
   }
   QString search;
-  QModelIndex index = qobject_cast<QSortFilterProxyModel*>(model())->mapToSource(current);
+
+  QModelIndex index = filter_->mapToSource(current);
 
   switch (item_type) {
     case CollectionItem::Type::Song:{
-      SongList songs = app_->collection_model()->GetChildSongs(index);
+      SongList songs = model_->GetChildSongs(index);
       if (!songs.isEmpty()) {
         last_selected_song_ = songs.last();
       }
@@ -598,8 +625,8 @@ void CollectionView::SearchForThis() {
     }
 
     case CollectionItem::Type::Container:{
-      CollectionItem *item = app_->collection_model()->IndexToItem(index);
-      const CollectionModel::GroupBy group_by = app_->collection_model()->GetGroupBy()[item->container_level];
+      CollectionItem *item = model_->IndexToItem(index);
+      const CollectionModel::GroupBy group_by = model_->GetGroupBy()[item->container_level];
       while (!item->children.isEmpty()) {
         item = item->children.constFirst();
       }
@@ -660,7 +687,7 @@ void CollectionView::SearchForThis() {
       return;
   }
 
-  filter_->ShowInCollection(search);
+  filter_widget_->ShowInCollection(search);
 
 }
 
@@ -685,18 +712,18 @@ void CollectionView::scrollTo(const QModelIndex &idx, ScrollHint hint) {
 
 SongList CollectionView::GetSelectedSongs() const {
 
-  QModelIndexList selected_indexes = qobject_cast<QSortFilterProxyModel*>(model())->mapSelectionToSource(selectionModel()->selection()).indexes();
-  return app_->collection_model()->GetChildSongs(selected_indexes);
+  QModelIndexList selected_indexes = filter_->mapSelectionToSource(selectionModel()->selection()).indexes();
+  return model_->GetChildSongs(selected_indexes);
 
 }
 
 void CollectionView::Organize() {
 
   if (!organize_dialog_) {
-    organize_dialog_ = make_unique<OrganizeDialog>(app_->task_manager(), app_->collection_backend(), this);
+    organize_dialog_ = make_unique<OrganizeDialog>(task_manager_, tagreader_client_, backend_, this);
   }
 
-  organize_dialog_->SetDestinationModel(app_->collection_model()->directory_model());
+  organize_dialog_->SetDestinationModel(model_->directory_model());
   organize_dialog_->SetCopy(false);
   const SongList songs = GetSelectedSongs();
   if (organize_dialog_->SetSongs(songs)) {
@@ -711,7 +738,7 @@ void CollectionView::Organize() {
 void CollectionView::EditTracks() {
 
   if (!edit_tag_dialog_) {
-    edit_tag_dialog_ = make_unique<EditTagDialog>(app_, this);
+    edit_tag_dialog_ = make_unique<EditTagDialog>(network_, tagreader_client_, backend_, albumcover_loader_, current_albumcover_loader_, cover_providers_, lyrics_providers_, streaming_services_, this);
     QObject::connect(&*edit_tag_dialog_, &EditTagDialog::Error, this, &CollectionView::EditTagError);
   }
   const SongList songs = GetSelectedSongs();
@@ -726,18 +753,18 @@ void CollectionView::EditTagError(const QString &message) {
 
 void CollectionView::RescanSongs() {
 
-  app_->collection()->Rescan(GetSelectedSongs());
+  collection_->Rescan(GetSelectedSongs());
 
 }
 
 void CollectionView::CopyToDevice() {
 
-#ifndef Q_OS_WIN
+#ifndef Q_OS_WIN32
   if (!organize_dialog_) {
-    organize_dialog_ = make_unique<OrganizeDialog>(app_->task_manager(), nullptr, this);
+    organize_dialog_ = make_unique<OrganizeDialog>(task_manager_, tagreader_client_, nullptr, this);
   }
 
-  organize_dialog_->SetDestinationModel(app_->device_manager()->connected_devices_model(), true);
+  organize_dialog_->SetDestinationModel(device_manager_->connected_devices_model(), true);
   organize_dialog_->SetCopy(true);
   organize_dialog_->SetSongs(GetSelectedSongs());
   organize_dialog_->show();
@@ -809,9 +836,9 @@ void CollectionView::Delete() {
   if (DeleteConfirmationDialog::warning(files) != QDialogButtonBox::Yes) return;
 
   // We can cheat and always take the storage of the first directory, since they'll all be FilesystemMusicStorage in a collection and deleting doesn't check the actual directory.
-  SharedPtr<MusicStorage> storage = app_->collection_model()->directory_model()->index(0, 0).data(MusicStorage::Role_Storage).value<SharedPtr<MusicStorage>>();
+  SharedPtr<MusicStorage> storage = model_->directory_model()->index(0, 0).data(MusicStorage::Role_Storage).value<SharedPtr<MusicStorage>>();
 
-  DeleteFiles *delete_files = new DeleteFiles(app_->task_manager(), storage, true);
+  DeleteFiles *delete_files = new DeleteFiles(task_manager_, storage, true);
   QObject::connect(delete_files, &DeleteFiles::Finished, this, &CollectionView::DeleteFilesFinished);
   delete_files->Start(songs);
 

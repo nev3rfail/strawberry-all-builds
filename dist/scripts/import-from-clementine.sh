@@ -2,7 +2,7 @@
 
 # Strawberry Music Player
 # Copyright 2020, Jonas Kvinge <jonas@jkvinge.net>
-# 2021 Alexey Vazhnov
+# Copyright 2021, Alexey Vazhnov
 #
 # Strawberry is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -19,7 +19,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 
-# Based on https://github.com/strawberrymusicplayer/strawberry/wiki/Import-collection-library-and-playlists-data-from-Clementine
+# Based on https://wiki.strawberrymusicplayer.org/wiki/Import_collection_library_and_playlists_from_Clementine
 
 set -o nounset
 set -o errexit
@@ -35,8 +35,8 @@ test -f "$FILE_DST" || { echo "No such file: $FILE_DST"; exit 1; }
 
 echo "Will try to copy information from $FILE_SRC to $FILE_DST."
 echo
-echo 'This script will **delete all information** from Strawberry database!'
-read -r -p 'Do you want to continue? (the only YES is accepted) ' answer
+echo 'This script will **delete all data** from the Strawberry database!'
+read -r -p 'Do you want to continue? (Only YES is accepted) ' answer
 if [ "$answer" != "YES" ]; then exit 1; fi
 
 # 'heredoc' with substitution of variables, see `man bash`, "Here Documents":
@@ -62,9 +62,9 @@ INSERT INTO strawberry.subdirectories (directory_id, path, mtime) SELECT directo
 INSERT INTO strawberry.songs (ROWID, title, album, artist, albumartist, track, disc, year, originalyear, genre, compilation, composer, performer, grouping, comment, lyrics, beginning, length, bitrate, samplerate, directory_id, url, filetype, filesize, mtime, ctime, unavailable, playcount, skipcount, lastplayed, compilation_detected, compilation_on, compilation_off, compilation_effective, art_automatic, art_manual, effective_albumartist, effective_originalyear, cue_path, rating)
 SELECT ROWID, title, album, artist, albumartist, track, disc, year, originalyear, genre, compilation, composer, performer, grouping, comment, lyrics, beginning, length, bitrate, samplerate, directory, filename, filetype, filesize, mtime, ctime, unavailable, playcount, skipcount, lastplayed, sampler, forced_compilation_on, forced_compilation_off, effective_compilation, art_automatic, art_manual, effective_albumartist, effective_originalyear, cue_path, rating FROM clementine.songs WHERE unavailable = 0;
 UPDATE strawberry.songs SET source = 2;
-UPDATE strawberry.songs SET artist_id = "";
-UPDATE strawberry.songs SET album_id = "";
-UPDATE strawberry.songs SET song_id = "";
+UPDATE strawberry.songs SET artist_id = '';
+UPDATE strawberry.songs SET album_id = '';
+UPDATE strawberry.songs SET song_id = '';
 
 /* Import playlists */
 
@@ -140,7 +140,7 @@ SELECT ROWID,
    bitrate,
    samplerate,
    directory,
-   filename,
+   CASE WHEN filename IS NULL THEN '' ELSE filename END,
    filetype,
    filesize,
    mtime,
@@ -162,16 +162,9 @@ SELECT ROWID,
 
 UPDATE strawberry.playlist_items SET source = 2;
 UPDATE strawberry.playlist_items SET type = 2;
-UPDATE strawberry.playlist_items SET artist_id = "";
-UPDATE strawberry.playlist_items SET album_id = "";
-UPDATE strawberry.playlist_items SET song_id = "";
-
-/* Recreate the FTS tables */
-
-DELETE FROM strawberry.songs_fts;
-INSERT INTO strawberry.songs_fts (ROWID, ftstitle, ftsalbum, ftsartist, ftsalbumartist, ftscomposer, ftsperformer, ftsgrouping, ftsgenre, ftscomment)
-SELECT ROWID, title, album, artist, albumartist, composer, performer, grouping, genre, comment
-FROM strawberry.songs;
+UPDATE strawberry.playlist_items SET artist_id = '';
+UPDATE strawberry.playlist_items SET album_id = '';
+UPDATE strawberry.playlist_items SET song_id = '';
 
 EOF
 

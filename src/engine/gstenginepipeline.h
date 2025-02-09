@@ -2,7 +2,7 @@
  * Strawberry Music Player
  * This file was part of Clementine.
  * Copyright 2010, David Sansome <me@davidsansome.com>
- * Copyright 2018-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2024, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -36,19 +36,18 @@
 #include <QFuture>
 #include <QTimeLine>
 #include <QEasingCurve>
-#include <QBasicTimer>
 #include <QList>
 #include <QByteArray>
 #include <QVariant>
 #include <QString>
 #include <QUrl>
+#include <QSharedPointer>
 
-#include "core/shared_ptr.h"
-#include "core/mutex_protected.h"
-#include "enginemetadata.h"
+#include "includes/shared_ptr.h"
+#include "includes/mutex_protected.h"
+#include "core/enginemetadata.h"
 
 class QTimer;
-class QTimerEvent;
 class GstBufferConsumer;
 struct GstPlayBin;
 
@@ -79,13 +78,13 @@ class GstEnginePipeline : public QObject {
   void set_strict_ssl_enabled(const bool enabled);
   void set_fading_enabled(const bool enabled);
 #ifdef HAVE_SPOTIFY
-  void set_spotify_login(const QString &spotify_username, const QString &spotify_password);
+  void set_spotify_access_token(const QString &spotify_access_token);
 #endif
 
   bool Finish();
 
   // Creates the pipeline, returns false on error
-  bool InitFromUrl(const QUrl &media_url, const QUrl &stream_url, const QByteArray &gst_url, const qint64 end_nanosec, const double ebur128_loudness_normalizing_gain_db, QString &error);
+  bool InitFromUrl(const QUrl &media_url, const QUrl &stream_url, const QByteArray &gst_url, const qint64 beginning_offset_nanosec, const qint64 end_offset_nanosec, const double ebur128_loudness_normalizing_gain_db, QString &error);
 
   // GstBufferConsumers get fed audio data.  Thread-safe.
   void AddBufferConsumer(GstBufferConsumer *consumer);
@@ -93,7 +92,7 @@ class GstEnginePipeline : public QObject {
   void RemoveAllBufferConsumers();
 
   // Control the music playback
-  Q_INVOKABLE QFuture<GstStateChangeReturn> SetStateAsync(const GstState state);
+  Q_INVOKABLE QFuture<GstStateChangeReturn> SetState(const GstState state);
   Q_INVOKABLE QFuture<GstStateChangeReturn> Play(const bool pause, const quint64 offset_nanosec);
   Q_INVOKABLE bool Seek(const qint64 nanosec);
   void SeekAsync(const qint64 nanosec);
@@ -106,7 +105,8 @@ class GstEnginePipeline : public QObject {
 
   // If this is set then it will be loaded automatically when playback finishes for gapless playback
   bool HasNextUrl() const;
-  void PrepareNextUrl(const QUrl &media_url, const QUrl &stream_url, const QByteArray &gst_url, const qint64 beginning_nanosec, const qint64 end_nanosec);
+  bool HasMatchingNextUrl() const;
+  void PrepareNextUrl(const QUrl &media_url, const QUrl &stream_url, const QByteArray &gst_url, const qint64 beginning_offset_nanosec, const qint64 end_offset_nanosec);
   void SetNextUrl();
 
   void SetSourceDevice(const QString &device);
@@ -155,14 +155,13 @@ class GstEnginePipeline : public QObject {
   void BufferingProgress(const int percent);
   void BufferingFinished();
 
- protected:
-  void timerEvent(QTimerEvent*) override;
-
  private:
   static QString GstStateText(const GstState state);
   GstElement *CreateElement(const QString &factory_name, const QString &name, GstElement *bin, QString &error) const;
+  bool IsStateNull() const;
   bool InitAudioBin(QString &error);
   void SetupVolume(GstElement *element);
+  void SetStateAsync(const GstState state);
 
   // Static callbacks.  The GstEnginePipeline instance is passed in the last argument.
   static GstPadProbeReturn UpstreamEventsProbeCallback(GstPad *pad, GstPadProbeInfo *info, gpointer self);
@@ -196,10 +195,16 @@ class GstEnginePipeline : public QObject {
   void Disconnect();
   void ResumeFaderAsync();
 
+  void ProcessPendingSeek(const GstState state);
+
  private Q_SLOTS:
-  void SetStateAsyncFinished(const GstState state, const GstStateChangeReturn state_change_return);
+  void SetStateAsyncSlot(const GstState state);
+  void SetStateFinishedSlot(const GstState state, const GstStateChangeReturn state_change_return);
   void SetFaderVolume(const qreal volume);
+  void FaderTimelineStateChanged(const QTimeLine::State state);
   void FaderTimelineFinished();
+  void FaderTimelineTimeout();
+  void FaderFudgeFinished();
 
  private:
   // Using == to compare two pipelines is a bad idea, because new ones often get created in the same address as old ones.  This ID will be unique for each pipeline.
@@ -259,8 +264,8 @@ class GstEnginePipeline : public QObject {
 
   // Spotify
 #ifdef HAVE_SPOTIFY
-  QString spotify_username_;
-  QString spotify_password_;
+  QString spotify_access_token_;
+  mutable QMutex mutex_spotify_access_token_;
 #endif
 
   // The URL that is currently playing, and the URL that is to be preloaded when the current track is close to finishing.
@@ -284,6 +289,7 @@ class GstEnginePipeline : public QObject {
   mutex_protected<bool> segment_start_received_;
   GstSegment last_playbin_segment_{};
 
+  mutex_protected<qint64> beginning_offset_nanosec_;
   // If this is > 0 then the pipeline will be forced to stop when playback goes past this position.
   mutex_protected<qint64> end_offset_nanosec_;
 
@@ -313,6 +319,7 @@ class GstEnginePipeline : public QObject {
 
   mutex_protected<GstState> pending_state_;
   mutex_protected<qint64> pending_seek_nanosec_;
+  mutex_protected<GstState> pending_seek_ready_previous_state_;
 
   // We can only use gst_element_query_position() when the pipeline is in
   // PAUSED nor PLAYING state. Whenever we get a new position (e.g. after a correct call to gst_element_query_position() or after a seek), we store
@@ -321,6 +328,7 @@ class GstEnginePipeline : public QObject {
 
   // Complete the transition to the next song when it starts playing
   mutex_protected<bool> next_uri_set_;
+  mutex_protected<bool> next_uri_need_reset_;
   mutex_protected<bool> next_uri_reset_;
 
   mutex_protected<bool> volume_set_;
@@ -328,9 +336,11 @@ class GstEnginePipeline : public QObject {
   mutex_protected<uint> volume_percent_;
 
   mutex_protected<bool> fader_active_;
+  mutex_protected<bool> fader_running_;
+  bool fader_use_fudge_timer_;
   SharedPtr<QTimeLine> fader_;
-  QBasicTimer fader_fudge_timer_;
-  bool use_fudge_timer_;
+  QTimer *timer_fader_fudge_;
+  QTimer *timer_fader_timeout_;
 
   GstElement *pipeline_;
   GstElement *audiobin_;
@@ -360,8 +370,14 @@ class GstEnginePipeline : public QObject {
   mutex_protected<bool> about_to_finish_;
   mutex_protected<bool> finish_requested_;
   mutex_protected<bool> finished_;
+
+  mutex_protected<int> set_state_in_progress_;
+  mutex_protected<int> set_state_async_in_progress_;
+
+  mutex_protected<GstState> last_set_state_in_progress_;
+  mutex_protected<GstState> last_set_state_async_in_progress_;
 };
 
-using GstEnginePipelinePtr = SharedPtr<GstEnginePipeline>;
+using GstEnginePipelinePtr = QSharedPointer<GstEnginePipeline>;
 
 #endif  // GSTENGINEPIPELINE_H

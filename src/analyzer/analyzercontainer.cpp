@@ -44,12 +44,13 @@
 #include "waverubberanalyzer.h"
 #include "rainbowanalyzer.h"
 
+#include "includes/shared_ptr.h"
 #include "core/logging.h"
-#include "core/shared_ptr.h"
 #include "core/settings.h"
 #include "engine/enginebase.h"
 
 using namespace std::chrono_literals;
+using namespace Qt::Literals::StringLiterals;
 
 const char *AnalyzerContainer::kSettingsGroup = "Analyzer";
 const char *AnalyzerContainer::kSettingsFramerate = "framerate";
@@ -111,10 +112,6 @@ AnalyzerContainer::AnalyzerContainer(QWidget *parent)
 
 void AnalyzerContainer::mouseReleaseEvent(QMouseEvent *e) {
 
-  if (engine_->type() != EngineBase::Type::GStreamer) {
-    return;
-  }
-
   if (e->button() == Qt::RightButton) {
     context_menu_->popup(e->globalPosition().toPoint());
   }
@@ -137,10 +134,12 @@ void AnalyzerContainer::SetEngine(SharedPtr<EngineBase> engine) {
 }
 
 void AnalyzerContainer::DisableAnalyzer() {
+
   delete current_analyzer_;
   current_analyzer_ = nullptr;
 
   Save();
+
 }
 
 void AnalyzerContainer::ChangeAnalyzer(const int id) {
@@ -183,7 +182,7 @@ void AnalyzerContainer::Load() {
 
   Settings s;
   s.beginGroup(kSettingsGroup);
-  QString type = s.value("type", QStringLiteral("BlockAnalyzer")).toString();
+  QString type = s.value("type", u"BlockAnalyzer"_s).toString();
   current_framerate_ = s.value(kSettingsFramerate, kMediumFramerate).toInt();
   s.endGroup();
 

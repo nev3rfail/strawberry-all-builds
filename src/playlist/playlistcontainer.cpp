@@ -46,7 +46,7 @@
 #include <QtEvents>
 #include <QSettings>
 
-#include "core/shared_ptr.h"
+#include "includes/shared_ptr.h"
 #include "core/iconloader.h"
 #include "core/settings.h"
 #include "filterparser/filterparser.h"
@@ -59,7 +59,9 @@
 #include "playlistparsers/playlistparser.h"
 #include "ui_playlistcontainer.h"
 #include "widgets/searchfield.h"
-#include "settings/appearancesettingspage.h"
+#include "constants/appearancesettings.h"
+
+using namespace Qt::Literals::StringLiterals;
 
 namespace {
 constexpr char kSettingsGroup[] = "Playlist";
@@ -97,7 +99,7 @@ PlaylistContainer::PlaylistContainer(QWidget *parent)
   no_matches_label_->setPalette(no_matches_palette);
 
   // Remove QFrame border
-  ui_->toolbar->setStyleSheet(QStringLiteral("QFrame { border: 0px; }"));
+  ui_->toolbar->setStyleSheet(u"QFrame { border: 0px; }"_s);
 
   // Make it bold
   QFont no_matches_font = no_matches_label_->font();
@@ -228,9 +230,9 @@ void PlaylistContainer::SetViewModel(Playlist *playlist, const int scroll_positi
   delete redo_;
   undo_ = playlist->undo_stack()->createUndoAction(this, tr("Undo"));
   redo_ = playlist->undo_stack()->createRedoAction(this, tr("Redo"));
-  undo_->setIcon(IconLoader::Load(QStringLiteral("edit-undo")));
+  undo_->setIcon(IconLoader::Load(u"edit-undo"_s));
   undo_->setShortcut(QKeySequence::Undo);
-  redo_->setIcon(IconLoader::Load(QStringLiteral("edit-redo")));
+  redo_->setIcon(IconLoader::Load(u"edit-redo"_s));
   redo_->setShortcut(QKeySequence::Redo);
 
   ui_->undo->setDefaultAction(undo_);
@@ -243,8 +245,8 @@ void PlaylistContainer::SetViewModel(Playlist *playlist, const int scroll_positi
 void PlaylistContainer::ReloadSettings() {
 
   Settings s;
-  s.beginGroup(AppearanceSettingsPage::kSettingsGroup);
-  int iconsize = s.value(AppearanceSettingsPage::kIconSizePlaylistButtons, 20).toInt();
+  s.beginGroup(AppearanceSettings::kSettingsGroup);
+  int iconsize = s.value(AppearanceSettings::kIconSizePlaylistButtons, 20).toInt();
   s.endGroup();
 
   ui_->create_new->setIconSize(QSize(iconsize, iconsize));
@@ -279,11 +281,11 @@ void PlaylistContainer::FocusSearchField() {
 }
 
 void PlaylistContainer::ActivePlaying() {
-  UpdateActiveIcon(QIcon(QStringLiteral(":/pictures/tiny-play.png")));
+  UpdateActiveIcon(QIcon(u":/pictures/tiny-play.png"_s));
 }
 
 void PlaylistContainer::ActivePaused() {
-  UpdateActiveIcon(QIcon(QStringLiteral(":/pictures/tiny-pause.png")));
+  UpdateActiveIcon(QIcon(u":/pictures/tiny-pause.png"_s));
 }
 
 void PlaylistContainer::ActiveStopped() { UpdateActiveIcon(QIcon()); }

@@ -10,7 +10,7 @@ jobs:
 
   build-opensuse:
     name: Build openSUSE
-    if: github.repository != 'strawberrymusicplayer/strawberry-private'
+    if: github.repository != 'strawberrymusicplayer/strawberry-private' && github.ref != 'refs/heads/l10n_master'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -21,18 +21,18 @@ jobs:
     steps:
       - name: Refresh repositories
         run: zypper -n --gpg-auto-import-keys ref
-      - name: Upgrade packages
+      - name: Upgrade packages (Tumbleweed)
         if: matrix.opensuse_version == 'tumbleweed'
         run: zypper -n --gpg-auto-import-keys dup
-      - name: Upgrade packages
+      - name: Upgrade packages (Leap)
         if: matrix.opensuse_version != 'tumbleweed'
         run: zypper -n --gpg-auto-import-keys up
-      - name: Install gcc
+      - name: Install gcc (Tumbleweed)
         if: matrix.opensuse_version == 'tumbleweed'
         run: zypper -n --gpg-auto-import-keys in gcc gcc-c++
-      - name: Install gcc 13
+      - name: Install gcc (Leap)
         if: matrix.opensuse_version != 'tumbleweed'
-        run: zypper -n --gpg-auto-import-keys in gcc13 gcc13-c++
+        run: zypper -n --gpg-auto-import-keys in gcc14 gcc14-c++
       - name: Install packages
         run: >
             zypper -n --gpg-auto-import-keys in
@@ -42,22 +42,18 @@ jobs:
             tar
             make
             cmake
-            gettext-tools
             openssh-clients
             glibc-devel
             libboost_headers-devel
             boost-devel
             glib2-devel
             glib2-tools
-            dbus-1-devel
             alsa-devel
             libnotify-devel
-            protobuf-devel
             sqlite3-devel
             libpulse-devel
             gstreamer-devel
             gstreamer-plugins-base-devel
-            vlc-devel
             taglib-devel
             libicu-devel
             libcdio-devel
@@ -72,6 +68,7 @@ jobs:
             hicolor-icon-theme
             qt6-core-devel
             qt6-gui-devel
+            qt6-gui-private-devel
             qt6-widgets-devel
             qt6-concurrent-devel
             qt6-network-devel
@@ -81,6 +78,9 @@ jobs:
             qt6-base-common-devel
             qt6-sql-sqlite
             qt6-linguist-devel
+            gtest
+            gmock
+            sparsehash-devel
       - name: Install kdsingleapplication-qt6-devel
         if: matrix.opensuse_version == 'tumbleweed'
         run: zypper -n --gpg-auto-import-keys in kdsingleapplication-qt6-devel
@@ -94,7 +94,7 @@ jobs:
       - name: Create Build Environment
         run: cmake -E make_directory build
       - name: Configure CMake
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_WERROR=ON -DUSE_TAGLIB=ON
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_WERROR=ON
       - name: Create source tarball
         working-directory: build
         run: ../dist/scripts/maketarball.sh
@@ -105,15 +105,18 @@ jobs:
         run: cp strawberry-*.tar.xz /usr/src/packages/SOURCES/
       - name: Build RPM (Tumbleweed)
         if: matrix.opensuse_version == 'tumbleweed'
+        env:
+          RPM_BUILD_NCPUS: 4
         working-directory: build
-        run: rpmbuild -ba ../dist/unix/strawberry.spec
+        run: rpmbuild -ba strawberry.spec
       - name: Build RPM (Leap)
         if: matrix.opensuse_version != 'tumbleweed'
-        working-directory: build
         env:
-          CC: gcc-13
-          CXX: g++-13
-        run: rpmbuild -ba ../dist/unix/strawberry.spec
+          RPM_BUILD_NCPUS: 4
+          CC: gcc-14
+          CXX: g++-14
+        working-directory: build
+        run: rpmbuild -ba strawberry.spec
       - name: Set subdir
         id: set-subdir
         run: echo "subdir=$(echo ${{matrix.opensuse_version}} | sed 's/leap:/lp/g' | sed 's/\.//g')" > $GITHUB_OUTPUT
@@ -136,12 +139,12 @@ jobs:
 
   build-fedora:
     name: Build Fedora
-    if: github.repository != 'strawberrymusicplayer/strawberry-private'
+    if: github.repository != 'strawberrymusicplayer/strawberry-private' && github.ref != 'refs/heads/l10n_master'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        fedora_version: [ '39', '40', '41' ]
+        fedora_version: [ '39', '40', '41', '42' ]
     container:
       image: fedora:${{matrix.fedora_version}}
     steps:
@@ -153,7 +156,7 @@ jobs:
         run: >
             dnf -y install
             @development-tools
-            redhat-lsb-core
+            lsb_release
             which
             git
             glibc
@@ -165,13 +168,9 @@ jobs:
             glib
             man
             tar
-            gettext
             openssh
             rsync
             boost-devel
-            dbus-devel
-            protobuf-devel
-            protobuf-compiler
             sqlite-devel
             alsa-lib-devel
             pulseaudio-libs-devel
@@ -193,6 +192,9 @@ jobs:
             libappstream-glib
             hicolor-icon-theme
             kdsingleapplication-qt6-devel
+            gtest-devel
+            gmock-devel
+            sparsehash-devel
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -215,9 +217,9 @@ jobs:
         run: cp strawberry-*.tar.xz ~/rpmbuild/SOURCES/
       - name: Build RPM
         env:
-          RPM_BUILD_NCPUS: "2"
+          RPM_BUILD_NCPUS: 4
         working-directory: build
-        run: rpmbuild -ba ../dist/unix/strawberry.spec
+        run: rpmbuild -ba strawberry.spec
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -229,7 +231,7 @@ jobs:
 
   build-openmandriva:
     name: Build OpenMandriva
-    if: github.repository != 'strawberrymusicplayer/strawberry-private' && false
+    if: github.repository != 'strawberrymusicplayer/strawberry-private' && github.ref != 'refs/heads/l10n_master' && false
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -251,15 +253,11 @@ jobs:
           make
           cmake
           glib
-          gettext
           lsb-release
           rpmdevtools
           rpm-build
           glibc-devel
           boost-devel
-          dbus-devel
-          protobuf-devel
-          protobuf-compiler
           sqlite-devel
           libasound-devel
           pulseaudio-devel
@@ -312,9 +310,9 @@ jobs:
         run: cp strawberry-*.tar.xz ~/rpmbuild/SOURCES/
       - name: Build RPM
         env:
-          RPM_BUILD_NCPUS: "2"
+          RPM_BUILD_NCPUS: 4
         working-directory: build
-        run: rpmbuild -ba ../dist/unix/strawberry.spec
+        run: rpmbuild -ba strawberry.spec
       - name: Upload artifacts
         if: matrix.openmandriva_version != 'cooker'
         uses: actions/upload-artifact@v4
@@ -327,7 +325,7 @@ jobs:
 
   build-mageia:
     name: Build Mageia
-    if: github.repository != 'strawberrymusicplayer/strawberry-private'
+    if: github.repository != 'strawberrymusicplayer/strawberry-private' && github.ref != 'refs/heads/l10n_master'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -358,9 +356,7 @@ jobs:
           man
           tar
           rpmdevtools
-          gettext
           lib64boost-devel
-          lib64protobuf-devel
           lib64sqlite3-devel
           lib64alsa2-devel
           lib64pulseaudio-devel
@@ -385,10 +381,11 @@ jobs:
           lib64qt6dbus-devel
           lib64qt6help-devel
           lib64qt6test-devel
-          protobuf-compiler
+          lib64sparsehash-devel
           desktop-file-utils
           appstream-util
           hicolor-icon-theme
+          gtest
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -411,9 +408,9 @@ jobs:
         run: cp strawberry-*.tar.xz ~/rpmbuild/SOURCES/
       - name: Build RPM
         env:
-          RPM_BUILD_NCPUS: "2"
+          RPM_BUILD_NCPUS: 4
         working-directory: build
-        run: rpmbuild -ba ../dist/unix/strawberry.spec
+        run: rpmbuild -ba strawberry.spec
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -425,7 +422,7 @@ jobs:
 
   build-debian:
     name: Build Debian
-    if: github.repository != 'strawberrymusicplayer/strawberry-private'
+    if: github.repository != 'strawberrymusicplayer/strawberry-private' && github.ref != 'refs/heads/l10n_master'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -452,14 +449,10 @@ jobs:
             g++
             pkg-config
             fakeroot
-            gettext
             lsb-release
             dpkg-dev
             libglib2.0-dev
-            libdbus-1-dev
             libboost-dev
-            libprotobuf-dev
-            protobuf-compiler
             libsqlite3-dev
             libasound2-dev
             libpulse-dev
@@ -475,7 +468,10 @@ jobs:
             libcdio-dev
             libmtp-dev
             libgpod-dev
+            libxkbcommon-dev
+            libsparsehash-dev
             qt6-base-dev
+            qt6-base-private-dev
             qt6-base-dev-tools
             qt6-tools-dev
             qt6-tools-dev-tools
@@ -490,21 +486,24 @@ jobs:
       - name: Create Build Environment
         run: cmake -E make_directory build
       - name: Configure CMake
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_WERROR=ON
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_WERROR=ON
+      - name: Delete build directory
+        run: rm -rf build
       - name: make deb
-        run: dpkg-buildpackage -b -d -uc -us -nc -j2
+        run: dpkg-buildpackage -b -d -uc -us -nc -j4
       - name: Copy deb
         run: cp ../*.deb .
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: debian-${{matrix.debian_version}}
-          path: "*.deb"
+          path: |
+            *.deb
 
 
   build-ubuntu:
     name: Build Ubuntu
-    if: github.repository != 'strawberrymusicplayer/strawberry-private'
+    if: github.repository != 'strawberrymusicplayer/strawberry-private' && github.ref != 'refs/heads/l10n_master'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -533,14 +532,10 @@ jobs:
             fakeroot
             wget
             curl
-            gettext
             lsb-release
             dpkg-dev
             libglib2.0-dev
             libboost-dev
-            libdbus-1-dev
-            libprotobuf-dev
-            protobuf-compiler
             libsqlite3-dev
             libasound2-dev
             libpulse-dev
@@ -557,7 +552,10 @@ jobs:
             libcdio-dev
             libmtp-dev
             libgpod-dev
+            libxkbcommon-dev
+            libsparsehash-dev
             qt6-base-dev
+            qt6-base-private-dev
             qt6-base-dev-tools
             qt6-tools-dev
             qt6-tools-dev-tools
@@ -572,9 +570,11 @@ jobs:
       - name: Create Build Environment
         run: cmake -E make_directory build
       - name: Configure CMake
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_WERROR=ON
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_WERROR=ON
+      - name: Delete build directory
+        run: rm -rf build
       - name: make deb
-        run: dpkg-buildpackage -b -d -uc -us -nc -j2
+        run: dpkg-buildpackage -b -d -uc -us -nc -j4
       - name: Copy deb
         run: cp ../*.deb ../*.ddeb .
       - name: Upload artifacts
@@ -588,7 +588,7 @@ jobs:
 
   upload-ubuntu-ppa:
     name: Upload Ubuntu PPA
-    if: github.repository == 'strawberrymusicplayer/strawberry' && github.event.pull_request.head.repo.fork == false && (github.event_name == 'release' || (github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/ci')))
+    if: github.repository == 'strawberrymusicplayer/strawberry' && github.event.pull_request.head.repo.fork == false && (github.event_name == 'release' || (github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/ci' || github.ref == 'refs/heads/1.1')))
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -615,15 +615,12 @@ jobs:
             gcc
             g++
             fakeroot
-            gettext
             lsb-release
             gpg
             dput
             dpkg-dev
             libglib2.0-dev
             libboost-dev
-            libdbus-1-dev
-            libprotobuf-dev
             libsqlite3-dev
             libasound2-dev
             libpulse-dev
@@ -638,14 +635,16 @@ jobs:
             libcdio-dev
             libmtp-dev
             libgpod-dev
+            libxkbcommon-dev
+            libsparsehash-dev
             qt6-base-dev
+            qt6-base-private-dev
             qt6-base-dev-tools
             qt6-tools-dev
             qt6-tools-dev-tools
             qt6-l10n-tools
             gstreamer1.0-alsa
             gstreamer1.0-pulseaudio
-            protobuf-compiler
       - name: Install keyboxd
         if: matrix.ubuntu_version == 'noble'
         env:
@@ -661,7 +660,7 @@ jobs:
       - name: Create Build Environment
         run: cmake -E make_directory build
       - name: Configure CMake
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_WERROR=ON
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_WERROR=ON
       - name: Delete build directory
         run: rm -rf build
       - name: Import Ubuntu PPA GPG private key
@@ -678,9 +677,60 @@ jobs:
         run: dput ppa:jonaski/strawberry ../*_source.changes
 
 
+  build-freebsd:
+    name: Build FreeBSD
+    if: github.repository != 'strawberrymusicplayer/strawberry-private' && github.ref != 'refs/heads/l10n_master'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        submodules: recursive
+    - name: Build FreeBSD
+      id: build-freebsd
+      uses: vmactions/freebsd-vm@v1.1.8
+      with:
+        usesh: true
+        mem: 4096
+        prepare: pkg install -y git cmake pkgconf boost-libs alsa-lib glib qt6-base qt6-tools sqlite gstreamer1 gstreamer1-plugins chromaprint libebur128 taglib libcdio libmtp gdk-pixbuf2 libgpod fftw3 icu kdsingleapplication googletest pulseaudio sparsehash
+        run: |
+          set -e
+          git config --global --add safe.directory ${GITHUB_WORKSPACE}
+          cmake -E make_directory build
+          cmake -S . -B build -DCMAKE_BUILD_TYPE="Debug"
+          cmake --build build --config Debug --parallel 4
+
+
+  build-openbsd:
+    name: Build OpenBSD
+    if: github.repository != 'strawberrymusicplayer/strawberry-private' && github.ref != 'refs/heads/l10n_master'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        submodules: recursive
+    - name: Build OpenBSD
+      id: build-openbsd
+      uses: vmactions/openbsd-vm@v1.1.6
+      with:
+        usesh: true
+        mem: 4096
+        prepare: pkg_add git cmake pkgconf boost glib2 qt6-qtbase qt6-qttools sqlite gstreamer1 gstreamer1-plugins-base chromaprint libebur128 taglib libcdio libmtp gdk-pixbuf libgpod fftw3 icu4c kdsingleapplication pulseaudio sparsehash
+        run: |
+          set -e
+          export LDFLAGS="-L/usr/local/lib"
+          git config --global --add safe.directory ${GITHUB_WORKSPACE}
+          cmake -E make_directory build
+          cmake -S . -B build -DCMAKE_BUILD_TYPE="Debug" -DENABLE_ALSA=OFF
+          cmake --build build --config Debug --parallel 4
+
+
   build-macos-public:
     name: Build macOS Public
-    if: github.repository != 'strawberrymusicplayer/strawberry-private'
+    if: github.repository != 'strawberrymusicplayer/strawberry-private' && github.ref != 'refs/heads/l10n_master'
 
     strategy:
       fail-fast: false
@@ -762,13 +812,14 @@ jobs:
           -B build
           -DCMAKE_BUILD_TYPE="${{env.cmake_buildtype}}"
           -DCMAKE_PREFIX_PATH="${{env.prefix_path}}/lib/cmake"
-          -DBUILD_WERROR=OFF
+          -DBUILD_WERROR=ON
           -DUSE_BUNDLE=ON
-          -DENABLE_DBUS=OFF
           -DICU_ROOT="${{env.prefix_path}}"
-          -DFFTW3_DIR="${{env.prefix_path}}"
           -DAPPLE_DEVELOPER_ID=$(test '${{github.repository}}' = 'strawberrymusicplayer/strawberry' && test '${{github.event.pull_request.base.repo.full_name}}' = '${{github.event.pull_request.head.repo.full_name}}' && echo "383J84DVB6" || echo "")
+          -DARCH="${{env.arch}}"
           -DENABLE_SPOTIFY=$(test -f "${{env.prefix_path}}/lib/gstreamer-1.0/libgstspotify.dylib" && echo "ON" || echo "OFF")
+          -DENABLE_SPARKLE=ON
+          -DENABLE_QTSPARKLE=OFF
 
       - name: Build
         run: cmake --build build --config Release --parallel 4
@@ -789,7 +840,7 @@ jobs:
       - name: Manually Codesign
         if: github.repository == 'strawberrymusicplayer/strawberry' && github.event.pull_request.head.repo.fork == false && matrix.runner == 'macos-13'
         working-directory: build
-        run: codesign -s 383J84DVB6 -f strawberry.app/Contents/Frameworks/{libpcre2-8.0.dylib,libpcre2-16.0.dylib,libpng16.16.dylib,libfreetype.6.dylib,libzstd.1.dylib,libutf8_validity.dylib} strawberry.app/Contents/Frameworks/png.framework/png strawberry.app
+        run: codesign -s 383J84DVB6 -f strawberry.app/Contents/Frameworks/{libpcre2-8.0.dylib,libpcre2-16.0.dylib,libpng16.16.dylib,libfreetype.6.dylib,libzstd.1.dylib} strawberry.app/Contents/Frameworks/png.framework/png strawberry.app
 
       - name: Manually Codesign
         if: github.repository == 'strawberrymusicplayer/strawberry' && github.event.pull_request.head.repo.fork == false && matrix.runner == 'macos-14'
@@ -902,13 +953,14 @@ jobs:
           -B build
           -DCMAKE_BUILD_TYPE="${{env.cmake_buildtype}}"
           -DCMAKE_PREFIX_PATH="${{env.prefix_path}}/lib/cmake"
-          -DBUILD_WERROR=OFF
+          -DBUILD_WERROR=ON
           -DUSE_BUNDLE=ON
-          -DENABLE_DBUS=OFF
           -DICU_ROOT="${{env.prefix_path}}"
-          -DFFTW3_DIR="${{env.prefix_path}}"
           -DAPPLE_DEVELOPER_ID="383J84DVB6"
+          -DARCH="${{env.arch}}"
           -DENABLE_SPOTIFY=$(test -f "${{env.prefix_path}}/lib/gstreamer-1.0/libgstspotify.dylib" && echo "ON" || echo "OFF")
+          -DENABLE_SPARKLE=ON
+          -DENABLE_QTSPARKLE=OFF
 
       - name: Build
         run: cmake --build build --config Release --parallel 4
@@ -960,12 +1012,12 @@ jobs:
 
   build-windows-mingw:
     name: Build Windows MinGW
-    if: github.repository != 'strawberrymusicplayer/strawberry-private'
+    if: github.repository != 'strawberrymusicplayer/strawberry-private' && github.ref != 'refs/heads/l10n_master'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        arch: [ 'x86_64' ]
+        arch: [ 'i686', 'x86_64' ]
         buildtype: [ 'debug', 'release' ]
     container:
       image: jonaski/strawberry-mxe-${{matrix.arch}}-${{matrix.buildtype}}
@@ -1000,15 +1052,14 @@ jobs:
           -DCMAKE_TOOLCHAIN_FILE="../cmake/Toolchain-${{matrix.arch}}-w64-mingw32-shared.cmake"
           -DCMAKE_BUILD_TYPE="${{env.cmake_buildtype}}"
           -DCMAKE_PREFIX_PATH="/strawberry-mxe/usr/${{matrix.arch}}-w64-mingw32.shared/qt6"
-          -DBUILD_WERROR=OFF
+          -DBUILD_WERROR=ON
           -DARCH="${{matrix.arch}}"
           -DENABLE_WIN32_CONSOLE=$(test "${{matrix.buildtype}}" = "debug" && echo "ON" || echo "OFF")
-          -DENABLE_DBUS=OFF
-          -DENABLE_LIBGPOD=OFF
-          -DENABLE_LIBMTP=OFF
+          -DENABLE_GIO=OFF
           -DENABLE_AUDIOCD=OFF
+          -DENABLE_MTP=OFF
+          -DENABLE_GPOD=OFF
           -DENABLE_SPOTIFY=OFF
-          -DProtobuf_PROTOC_EXECUTABLE="/strawberry-mxe/usr/x86_64-pc-linux-gnu/bin/protoc"
 
       - name: Run Make
         run: cmake --build build --config "${{env.cmake_buildtype}}" --parallel $(nproc)
@@ -1081,7 +1132,7 @@ jobs:
 
       - name: Copy nsis files
         working-directory: build
-        run: cp ${GITHUB_WORKSPACE}/dist/windows/*.nsi ${GITHUB_WORKSPACE}/dist/windows/*.nsh ${GITHUB_WORKSPACE}/dist/windows/*.ico .
+        run: cp ${GITHUB_WORKSPACE}/dist/windows/*.nsh ${GITHUB_WORKSPACE}/dist/windows/*.ico .
 
       - name: Copy COPYING license file
         working-directory: build
@@ -1150,12 +1201,12 @@ jobs:
 
   build-windows-msvc:
     name: Build Windows MSVC
-    if: github.repository != 'strawberrymusicplayer/strawberry-private'
+    if: github.repository != 'strawberrymusicplayer/strawberry-private' && github.ref != 'refs/heads/l10n_master'
     runs-on: windows-2022
     strategy:
       fail-fast: false
       matrix:
-        arch: [ 'x86_64' ]
+        arch: [ 'x86', 'x86_64' ]
         buildtype: [ 'release' ]
     steps:
 
@@ -1290,11 +1341,13 @@ jobs:
           -DCMAKE_PREFIX_PATH="${{env.prefix_path_forwardslash}}/lib/cmake"
           -DARCH="${{matrix.arch}}"
           -DENABLE_WIN32_CONSOLE=${{env.win32_console}}
-          -DUSE_TAGLIB=ON
           -DPKG_CONFIG_EXECUTABLE="${{env.prefix_path_forwardslash}}/bin/pkg-config.exe"
           -DICU_ROOT="${{env.prefix_path_forwardslash}}"
-          -DFFTW3_DIR="${{env.prefix_path_forwardslash}}"
-          -DBoost_INCLUDE_DIR="${{env.prefix_path_forwardslash}}/include"
+          -DENABLE_GIO=OFF
+          -DENABLE_AUDIOCD=OFF
+          -DENABLE_MTP=OFF
+          -DENABLE_GPOD=OFF
+          -DENABLE_SPOTIFY=ON
 
       - name: Run Make
         shell: cmd
@@ -1388,7 +1441,6 @@ jobs:
         shell: cmd
         working-directory: build
         run: |
-          copy ..\dist\windows\*.nsi .
           copy ..\dist\windows\*.nsh .
           copy ..\dist\windows\*.ico .
 
@@ -1428,6 +1480,11 @@ jobs:
             echo "Files missing in nsi: ${files_missing}"
             exit 1
           fi
+
+      - name: Download MSVC runtime
+        shell: bash
+        working-directory: build
+        run: curl -f -O -L https://aka.ms/vs/17/release/vc_redist.$(test "${{matrix.arch}}" = "x86_64" && echo "x64" || echo "${{matrix.arch}}").exe
 
       - name: Create nsis installer
         shell: cmd

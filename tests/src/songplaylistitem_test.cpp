@@ -20,7 +20,7 @@
 
 #include <memory>
 
-#include <gtest/gtest.h>
+#include "gtest_include.h"
 
 #include <QTemporaryFile>
 #include <QFileInfo>
@@ -30,10 +30,12 @@
 
 #include "test_utils.h"
 
-#include "core/scoped_ptr.h"
+#include "includes/scoped_ptr.h"
 #include "playlist/songplaylistitem.h"
 
 using std::make_unique;
+
+using namespace Qt::Literals::StringLiterals;
 
 // clazy:excludeall=non-pod-global-static
 
@@ -45,11 +47,11 @@ class SongPlaylistItemTest : public ::testing::TestWithParam<const char*> {
 
   void SetUp() override {
     // SongPlaylistItem::Url() checks if the file exists, so we need a real file
-    temp_file_.open();
+    EXPECT_TRUE(temp_file_.open());
 
     absolute_file_name_ = QFileInfo(temp_file_.fileName()).absoluteFilePath();
 
-    song_.Init(QStringLiteral("Title"), QStringLiteral("Artist"), QStringLiteral("Album"), 123);
+    song_.Init(u"Title"_s, u"Artist"_s, u"Album"_s, 123);
     song_.set_url(QUrl::fromLocalFile(absolute_file_name_));
 
     item_ = make_unique<SongPlaylistItem>(song_);
@@ -73,7 +75,7 @@ INSTANTIATE_TEST_SUITE_P(RealFiles, SongPlaylistItemTest, testing::Values(  // c
 
 TEST_P(SongPlaylistItemTest, Url) {
   QUrl expected;
-  expected.setScheme(QStringLiteral("file"));
+  expected.setScheme(u"file"_s);
   expected.setPath(absolute_file_name_);
 
   EXPECT_EQ(expected, item_->Url());

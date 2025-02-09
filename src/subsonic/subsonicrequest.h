@@ -42,7 +42,6 @@
 
 class QNetworkAccessManager;
 class QNetworkReply;
-class Application;
 class SubsonicService;
 class SubsonicUrlHandler;
 class NetworkTimeouts;
@@ -51,7 +50,7 @@ class SubsonicRequest : public SubsonicBaseRequest {
   Q_OBJECT
 
  public:
-  explicit SubsonicRequest(SubsonicService *service, SubsonicUrlHandler *url_handler, Application *app, QObject *parent = nullptr);
+  explicit SubsonicRequest(SubsonicService *service, SubsonicUrlHandler *url_handler, QObject *parent = nullptr);
   ~SubsonicRequest() override;
 
   void ReloadSettings();
@@ -112,7 +111,6 @@ class SubsonicRequest : public SubsonicBaseRequest {
 
   SubsonicService *service_;
   SubsonicUrlHandler *url_handler_;
-  Application *app_;
   QNetworkAccessManager *network_;
   NetworkTimeouts *timeouts_;
 
@@ -124,6 +122,7 @@ class SubsonicRequest : public SubsonicBaseRequest {
 
   QHash<QString, Request> album_songs_requests_pending_;
   QMultiMap<QString, QString> album_covers_requests_sent_;
+  QMultiMap<QString, QUrl> album_covers_retrieved_;
 
   int albums_requests_active_;
 

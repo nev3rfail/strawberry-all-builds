@@ -24,18 +24,20 @@
 
 #include "config.h"
 
+#include <cstddef>
+
+#include <cdio/types.h>
+#include <cdio/cdio.h>
+
+#include <gst/gstelement.h>
+#include <gst/audio/gstaudiocdsrc.h>
+
 #include <QObject>
 #include <QMutex>
 #include <QString>
 #include <QUrl>
 
-// These must come after Qt includes
-#include <cdio/types.h>
-#include <cdio/cdio.h>
-#include <gst/gstelement.h>
-#include <gst/audio/gstaudiocdsrc.h>
-
-#include "core/shared_ptr.h"
+#include "includes/shared_ptr.h"
 #include "core/song.h"
 #ifdef HAVE_MUSICBRAINZ
 #  include "musicbrainz/musicbrainzclient.h"

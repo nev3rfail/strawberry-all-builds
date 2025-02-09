@@ -27,8 +27,8 @@
 #include <QVBoxLayout>
 #include <QStyle>
 
+#include "includes/shared_ptr.h"
 #include "core/logging.h"
-#include "core/shared_ptr.h"
 #include "core/iconloader.h"
 
 #include "smartplaylistquerywizardplugin.h"
@@ -38,15 +38,23 @@
 #include "smartplaylistwizardfinishpage.h"
 #include "ui_smartplaylistwizardfinishpage.h"
 
-SmartPlaylistWizard::SmartPlaylistWizard(Application *app, SharedPtr<CollectionBackend> collection_backend, QWidget *parent)
+using namespace Qt::Literals::StringLiterals;
+
+SmartPlaylistWizard::SmartPlaylistWizard(const SharedPtr<Player> player,
+                                         const SharedPtr<PlaylistManager> playlist_manager,
+                                         const SharedPtr<CollectionBackend> collection_backend,
+#ifdef HAVE_MOODBAR
+                                         const SharedPtr<MoodbarLoader> moodbar_loader,
+#endif
+                                         const SharedPtr<CurrentAlbumCoverLoader> current_albumcover_loader,
+                                         QWidget *parent)
     : QWizard(parent),
-      app_(app),
       collection_backend_(collection_backend),
       type_page_(new SmartPlaylistWizardTypePage(this)),
       finish_page_(new SmartPlaylistWizardFinishPage(this)),
       type_index_(-1) {
 
-  setWindowIcon(IconLoader::Load(QStringLiteral("strawberry")));
+  setWindowIcon(IconLoader::Load(u"strawberry"_s));
   setWindowTitle(tr("Smart playlist"));
 
   resize(788, 628);
@@ -56,7 +64,8 @@ SmartPlaylistWizard::SmartPlaylistWizard(Application *app, SharedPtr<CollectionB
   setWizardStyle(QWizard::ClassicStyle);
 #endif
 #ifdef Q_OS_WIN32
-  if (QApplication::style() && QApplication::style()->objectName() == QStringLiteral("fusion")) {
+  // Workaround QTBUG-123853
+  if (QApplication::style() && QApplication::style()->objectName() != u"windowsvista"_s) {
     setWizardStyle(QWizard::ClassicStyle);
   }
 #endif
@@ -64,7 +73,7 @@ SmartPlaylistWizard::SmartPlaylistWizard(Application *app, SharedPtr<CollectionB
   // Type page
   type_page_->setTitle(tr("Playlist type"));
   type_page_->setSubTitle(tr("A smart playlist is a dynamic list of songs that come from your collection.  There are different types of smart playlist that offer different ways of selecting songs."));
-  type_page_->setStyleSheet(QStringLiteral("QRadioButton { font-weight: bold; } QLabel { margin-bottom: 1em; margin-left: 24px; }"));
+  type_page_->setStyleSheet(u"QRadioButton { font-weight: bold; } QLabel { margin-bottom: 1em; margin-left: 24px; }"_s);
   addPage(type_page_);
 
   // Finish page
@@ -73,7 +82,14 @@ SmartPlaylistWizard::SmartPlaylistWizard(Application *app, SharedPtr<CollectionB
   finish_id_ = addPage(finish_page_);
 
   new QVBoxLayout(type_page_);
-  AddPlugin(new SmartPlaylistQueryWizardPlugin(app_, collection_backend, this));
+  AddPlugin(new SmartPlaylistQueryWizardPlugin(player,
+                                               playlist_manager,
+                                               collection_backend,
+#ifdef HAVE_MOODBAR
+                                               moodbar_loader,
+#endif
+                                               current_albumcover_loader,
+                                               this));
 
   // Skip the type page - remove this when we have more than one type
   setStartId(2);
@@ -102,7 +118,7 @@ void SmartPlaylistWizard::SetGenerator(PlaylistGeneratorPtr gen) {
 
   // Set the name
   if (!gen->name().isEmpty()) {
-    setWindowTitle(windowTitle() + QStringLiteral(" - ") + gen->name());
+    setWindowTitle(windowTitle() + u" - "_s + gen->name());
   }
   finish_page_->ui_->name->setText(gen->name());
   finish_page_->ui_->dynamic->setChecked(gen->is_dynamic());

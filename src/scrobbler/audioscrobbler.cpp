@@ -25,22 +25,19 @@
 #include <QList>
 #include <QString>
 
-#include "core/shared_ptr.h"
-#include "core/application.h"
+#include "includes/shared_ptr.h"
 #include "core/logging.h"
 #include "core/song.h"
-#include "settings/settingsdialog.h"
 
 #include "audioscrobbler.h"
-#include "scrobblersettings.h"
+#include "scrobblersettingsservice.h"
 #include "scrobblerservice.h"
 
 using std::make_shared;
 
-AudioScrobbler::AudioScrobbler(Application *app, QObject *parent)
+AudioScrobbler::AudioScrobbler(QObject *parent)
     : QObject(parent),
-      app_(app),
-      settings_(make_shared<ScrobblerSettings>(app)) {
+      settings_(make_shared<ScrobblerSettingsService>()) {
 
   ReloadSettings();
 
@@ -80,11 +77,7 @@ void AudioScrobbler::RemoveService(ScrobblerServicePtr service) {
 
 QList<ScrobblerServicePtr> AudioScrobbler::GetAll() {
 
-  QList<ScrobblerServicePtr> services;
-
-    services = services_.values();
-
-  return services;
+  return services_.values();
 
 }
 
@@ -120,10 +113,6 @@ void AudioScrobbler::ToggleOffline() {
 
   if (settings_->enabled() && !settings_->offline()) { Submit(); }
 
-}
-
-void AudioScrobbler::ShowConfig() {
-  app_->OpenSettingsDialogAtPage(SettingsDialog::Page::Scrobbler);
 }
 
 void AudioScrobbler::UpdateNowPlaying(const Song &song) {

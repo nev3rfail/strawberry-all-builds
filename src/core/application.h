@@ -3,7 +3,7 @@
  * This file was part of Clementine.
  * Copyright 2012, David Sansome <me@davidsansome.com>
  * Copyright 2012, 2014, John Maguire <john.maguire@gmail.com>
- * Copyright 2018-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2024, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,14 +25,14 @@
 
 #include "config.h"
 
+#include <glib.h>
+
 #include <QObject>
 #include <QList>
 #include <QString>
 
-#include "scoped_ptr.h"
-#include "shared_ptr.h"
-
-#include "settings/settingsdialog.h"
+#include "includes/scoped_ptr.h"
+#include "includes/shared_ptr.h"
 
 class QThread;
 
@@ -41,16 +41,15 @@ class ApplicationImpl;
 class TagReaderClient;
 class Database;
 class DeviceFinders;
+class UrlHandlers;
 class Player;
 class NetworkAccessManager;
-class SCollection;
+class CollectionLibrary;
 class CollectionBackend;
 class CollectionModel;
 class PlaylistBackend;
 class PlaylistManager;
-#ifndef Q_OS_WIN
 class DeviceManager;
-#endif
 class CoverProviders;
 class AlbumCoverLoader;
 class CurrentAlbumCoverLoader;
@@ -72,17 +71,16 @@ class Application : public QObject {
   explicit Application(QObject *parent = nullptr);
   ~Application() override;
 
-  SharedPtr<TagReaderClient> tag_reader_client() const;
+  SharedPtr<TagReaderClient> tagreader_client() const;
   SharedPtr<Database> database() const;
   SharedPtr<TaskManager> task_manager() const;
   SharedPtr<Player> player() const;
   SharedPtr<NetworkAccessManager> network() const;
   SharedPtr<DeviceFinders> device_finders() const;
-#ifndef Q_OS_WIN
+  SharedPtr<UrlHandlers> url_handlers() const;
   SharedPtr<DeviceManager> device_manager() const;
-#endif
 
-  SharedPtr<SCollection> collection() const;
+  SharedPtr<CollectionLibrary> collection() const;
   SharedPtr<CollectionBackend> collection_backend() const;
   CollectionModel *collection_model() const;
 
@@ -90,7 +88,7 @@ class Application : public QObject {
   SharedPtr<PlaylistManager> playlist_manager() const;
 
   SharedPtr<CoverProviders> cover_providers() const;
-  SharedPtr<AlbumCoverLoader> album_cover_loader() const;
+  SharedPtr<AlbumCoverLoader> albumcover_loader() const;
   SharedPtr<CurrentAlbumCoverLoader> current_albumcover_loader() const;
 
   SharedPtr<LyricsProviders> lyrics_providers() const;
@@ -115,23 +113,17 @@ class Application : public QObject {
  private Q_SLOTS:
   void ExitReceived();
 
- public Q_SLOTS:
-  void AddError(const QString &message);
-  void ReloadSettings();
-  void OpenSettingsDialogAtPage(SettingsDialog::Page page);
-
  Q_SIGNALS:
-  void ErrorAdded(const QString &message);
-  void SettingsChanged();
-  void SettingsDialogRequested(const SettingsDialog::Page page);
   void ExitFinished();
-  void ClearPixmapDiskCache();
+
+ private:
+  static gpointer GLibMainLoopThreadFunc(gpointer data);
 
  private:
   ScopedPtr<ApplicationImpl> p_;
+  GThread *g_thread_;
   QList<QThread*> threads_;
   QList<QObject*> wait_for_exit_;
-
 };
 
 #endif  // APPLICATION_H

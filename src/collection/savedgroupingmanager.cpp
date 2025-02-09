@@ -39,12 +39,12 @@
 #include "core/logging.h"
 #include "core/iconloader.h"
 #include "core/settings.h"
-#include "settings/collectionsettingspage.h"
+#include "constants/collectionsettings.h"
 #include "collectionmodel.h"
 #include "savedgroupingmanager.h"
 #include "ui_savedgroupingmanager.h"
 
-using namespace Qt::StringLiterals;
+using namespace Qt::Literals::StringLiterals;
 
 const char *SavedGroupingManager::kSavedGroupingsSettingsGroup = "SavedGroupings";
 
@@ -61,7 +61,7 @@ SavedGroupingManager::SavedGroupingManager(const QString &saved_groupings_settin
   model_->setHorizontalHeaderItem(2, new QStandardItem(tr("Second Level")));
   model_->setHorizontalHeaderItem(3, new QStandardItem(tr("Third Level")));
   ui_->list->setModel(model_);
-  ui_->remove->setIcon(IconLoader::Load(QStringLiteral("edit-delete")));
+  ui_->remove->setIcon(IconLoader::Load(u"edit-delete"_s));
   ui_->remove->setEnabled(false);
 
   ui_->remove->setShortcut(QKeySequence::Delete);
@@ -77,7 +77,7 @@ SavedGroupingManager::~SavedGroupingManager() {
 
 QString SavedGroupingManager::GetSavedGroupingsSettingsGroup(const QString &settings_group) {
 
-  if (settings_group.isEmpty() || settings_group == QLatin1String(CollectionSettingsPage::kSettingsGroup)) {
+  if (settings_group.isEmpty() || settings_group == QLatin1String(CollectionSettings::kSettingsGroup)) {
     return QLatin1String(kSavedGroupingsSettingsGroup);
   }
 

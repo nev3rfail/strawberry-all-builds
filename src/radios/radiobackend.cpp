@@ -23,14 +23,16 @@
 #include <QMutexLocker>
 #include <QSqlDatabase>
 
-#include "core/shared_ptr.h"
+#include "includes/shared_ptr.h"
 #include "core/database.h"
 #include "core/sqlquery.h"
 #include "core/song.h"
 #include "radiobackend.h"
 #include "radiochannel.h"
 
-RadioBackend::RadioBackend(SharedPtr<Database> db, QObject *parent)
+using namespace Qt::Literals::StringLiterals;
+
+RadioBackend::RadioBackend(const SharedPtr<Database> db, QObject *parent)
     : QObject(parent),
       db_(db),
       original_thread_(thread()) {}
@@ -67,13 +69,13 @@ void RadioBackend::AddChannels(const RadioChannelList &channels) {
   QSqlDatabase db(db_->Connect());
 
   SqlQuery q(db);
-  q.prepare(QStringLiteral("INSERT INTO radio_channels (source, name, url, thumbnail_url) VALUES (:source, :name, :url, :thumbnail_url)"));
+  q.prepare(u"INSERT INTO radio_channels (source, name, url, thumbnail_url) VALUES (:source, :name, :url, :thumbnail_url)"_s);
 
   for (const RadioChannel &channel : channels) {
-    q.BindValue(QStringLiteral(":source"), static_cast<int>(channel.source));
-    q.BindValue(QStringLiteral(":name"), channel.name);
-    q.BindValue(QStringLiteral(":url"), channel.url);
-    q.BindValue(QStringLiteral(":thumbnail_url"), channel.thumbnail_url);
+    q.BindValue(u":source"_s, static_cast<int>(channel.source));
+    q.BindValue(u":name"_s, channel.name);
+    q.BindValue(u":url"_s, channel.url);
+    q.BindValue(u":thumbnail_url"_s, channel.thumbnail_url);
     if (!q.Exec()) {
       db_->ReportErrors(q);
       return;
@@ -96,7 +98,7 @@ void RadioBackend::GetChannels() {
   QSqlDatabase db(db_->Connect());
 
   SqlQuery q(db);
-  q.prepare(QStringLiteral("SELECT source, name, url, thumbnail_url FROM radio_channels"));
+  q.prepare(u"SELECT source, name, url, thumbnail_url FROM radio_channels"_s);
 
   if (!q.Exec()) {
     db_->ReportErrors(q);
@@ -127,7 +129,7 @@ void RadioBackend::DeleteChannels() {
   QSqlDatabase db(db_->Connect());
 
   SqlQuery q(db);
-  q.prepare(QStringLiteral("DELETE FROM radio_channels"));
+  q.prepare(u"DELETE FROM radio_channels"_s);
 
   if (!q.Exec()) {
     db_->ReportErrors(q);

@@ -45,7 +45,7 @@
 
 #include "ebur128analysis.h"
 
-using namespace Qt::StringLiterals;
+using namespace Qt::Literals::StringLiterals;
 using std::unique_ptr;
 
 namespace {
@@ -70,7 +70,7 @@ struct GstSampleDeleter {
 // * and 60deg <= |Azimuth (theta)| <= 120° (i.e. +-90deg +- 30deg)
 // ... then the channel is weighted at +1.5 dB.
 //
-// ITU R-REC-BS 1770-4 uppper and bottom position channels are at +-45deg,
+// ITU R-REC-BS 1770-4 upper and bottom position channels are at +-45deg,
 // So only the middle-position channels are affected.
 channel gst_channel_to_ebur_channel(GstAudioChannelPosition pos) {
 
@@ -395,11 +395,11 @@ std::optional<EBUR128Measures> EBUR128AnalysisImpl::Compute(const Song &song) {
     return std::nullopt;
   }
 
-  GstElement *src = CreateElement(QStringLiteral("filesrc"), pipeline);
-  GstElement *decode = CreateElement(QStringLiteral("decodebin"), pipeline);
-  GstElement *convert = CreateElement(QStringLiteral("audioconvert"), pipeline);
-  GstElement *queue = CreateElement(QStringLiteral("queue2"), pipeline);
-  GstElement *sink = CreateElement(QStringLiteral("appsink"), pipeline);
+  GstElement *src = CreateElement(u"filesrc"_s, pipeline);
+  GstElement *decode = CreateElement(u"decodebin"_s, pipeline);
+  GstElement *convert = CreateElement(u"audioconvert"_s, pipeline);
+  GstElement *queue = CreateElement(u"queue2"_s, pipeline);
+  GstElement *sink = CreateElement(u"appsink"_s, pipeline);
 
   if (!src || !decode || !convert || !queue || !sink) {
     gst_object_unref(pipeline);

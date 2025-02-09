@@ -37,20 +37,18 @@
 #include <QSpinBox>
 #include <QComboBox>
 #include <QGroupBox>
-#include <QStandardPaths>
 
+#include "constants/behavioursettings.h"
 #include "core/iconloader.h"
-#include "core/mainwindow.h"
 #include "core/settings.h"
 #include "settings/settingspage.h"
 #include "behavioursettingspage.h"
 #include "ui_behavioursettingspage.h"
 
-using namespace Qt::StringLiterals;
+using namespace Qt::Literals::StringLiterals;
+using namespace BehaviourSettings;
 
 class SettingsDialog;
-
-const char *BehaviourSettingsPage::kSettingsGroup = "Behaviour";
 
 #ifdef HAVE_TRANSLATIONS
 namespace {
@@ -65,7 +63,7 @@ BehaviourSettingsPage::BehaviourSettingsPage(SettingsDialog *dialog, QWidget *pa
       ui_(new Ui_BehaviourSettingsPage) {
 
   ui_->setupUi(this);
-  setWindowIcon(IconLoader::Load(QStringLiteral("strawberry"), true, 0, 32));
+  setWindowIcon(IconLoader::Load(u"strawberry"_s, true, 0, 32));
 
   QObject::connect(ui_->checkbox_showtrayicon, &QCheckBox::toggled, this, &BehaviourSettingsPage::ShowTrayIconToggled);
 
@@ -73,21 +71,21 @@ BehaviourSettingsPage::BehaviourSettingsPage(SettingsDialog *dialog, QWidget *pa
   ui_->checkbox_showtrayicon->hide();
   ui_->checkbox_trayicon_progress->hide();
   ui_->groupbox_startup->hide();
-#else
-#  ifndef HAVE_DBUS
+#endif
+
+#if !defined(HAVE_DBUS) || defined(Q_OS_MACOS)
   ui_->checkbox_taskbar_progress->hide();
-#  endif
 #endif
 
 #ifdef HAVE_TRANSLATIONS
   // Populate the language combo box.  We do this by looking at all the compiled in translations.
-  QDir dir1(QStringLiteral(":/translations/"));
+  QDir dir1(u":/i18n"_s);
   QDir dir2(QStringLiteral(TRANSLATIONS_DIR));
-  QStringList codes = dir1.entryList(QStringList() << QStringLiteral("*.qm"));
+  QStringList codes = dir1.entryList(QStringList() << u"*.qm"_s);
   if (dir2.exists()) {
-    codes << dir2.entryList(QStringList() << QStringLiteral("*.qm"));
+    codes << dir2.entryList(QStringList() << u"*.qm"_s);
   }
-  static const QRegularExpression lang_re(QStringLiteral("^strawberry_(.*).qm$"));
+  static const QRegularExpression lang_re(u"^strawberry_(.*).qm$"_s);
   for (const QString &filename : std::as_const(codes)) {
 
     QRegularExpressionMatch re_match = lang_re.match(filename);
@@ -106,12 +104,10 @@ BehaviourSettingsPage::BehaviourSettingsPage(SettingsDialog *dialog, QWidget *pa
     if (!native_name.isEmpty()) {
       language_name = native_name;
     }
-    QString name = QStringLiteral("%1 (%2)").arg(language_name, code);
+    QString name = u"%1 (%2)"_s.arg(language_name, code);
 
     language_map_[name] = code;
   }
-
-  language_map_[QStringLiteral("English (en)")] = QStringLiteral("en");
 
   // Sort the names and show them in the UI
   QStringList names = language_map_.keys();
@@ -154,26 +150,27 @@ void BehaviourSettingsPage::Load() {
 
 #ifdef Q_OS_MACOS
   ui_->checkbox_keeprunning->setEnabled(true);
-  ui_->checkbox_keeprunning->setChecked(s.value("keeprunning", false).toBool());
+  ui_->checkbox_keeprunning->setChecked(s.value(kKeepRunning, false).toBool());
 #else
   const bool systemtray_available = QSystemTrayIcon::isSystemTrayAvailable();
   ui_->checkbox_showtrayicon->setEnabled(systemtray_available);
-  ui_->checkbox_showtrayicon->setChecked(systemtray_available && s.value("showtrayicon", true).toBool());
+  ui_->checkbox_showtrayicon->setChecked(systemtray_available && s.value(kShowTrayIcon, true).toBool());
   ui_->checkbox_keeprunning->setEnabled(systemtray_available && ui_->checkbox_showtrayicon->isChecked());
-  ui_->checkbox_keeprunning->setChecked(systemtray_available && ui_->checkbox_showtrayicon->isChecked() && s.value("keeprunning", false).toBool());
+  ui_->checkbox_keeprunning->setChecked(s.value(kKeepRunning, false).toBool());
   ui_->checkbox_trayicon_progress->setEnabled(systemtray_available && ui_->checkbox_showtrayicon->isChecked());
-  ui_->checkbox_trayicon_progress->setChecked(systemtray_available && ui_->checkbox_showtrayicon->isChecked() && s.value("trayicon_progress", false).toBool());
+  ui_->checkbox_trayicon_progress->setChecked(systemtray_available && ui_->checkbox_showtrayicon->isChecked() && s.value(kTrayIconProgress, false).toBool());
   ui_->radiobutton_hide->setEnabled(systemtray_available && ui_->checkbox_showtrayicon->isChecked());
-#ifdef HAVE_DBUS
-  ui_->checkbox_taskbar_progress->setChecked(s.value("taskbar_progress", true).toBool());
-#endif
 #endif
 
-  ui_->checkbox_resumeplayback->setChecked(s.value("resumeplayback", false).toBool());
-  ui_->checkbox_playingwidget->setChecked(s.value("playing_widget", true).toBool());
+#if defined(HAVE_DBUS) && !defined(Q_OS_MACOS)
+  ui_->checkbox_taskbar_progress->setChecked(s.value(kTaskbarProgress, true).toBool());
+#endif
+
+  ui_->checkbox_resumeplayback->setChecked(s.value(kResumePlayback, false).toBool());
+  ui_->checkbox_playingwidget->setChecked(s.value(kPlayingWidget, true).toBool());
 
 #ifndef Q_OS_MACOS
-  const StartupBehaviour startup_behaviour = static_cast<StartupBehaviour>(s.value("startupbehaviour", static_cast<int>(StartupBehaviour::Remember)).toInt());
+  const StartupBehaviour startup_behaviour = static_cast<StartupBehaviour>(s.value(kStartupBehaviour, static_cast<int>(StartupBehaviour::Remember)).toInt());
   switch (startup_behaviour) {
     case StartupBehaviour::Show:
       ui_->radiobutton_show->setChecked(true);
@@ -191,13 +188,13 @@ void BehaviourSettingsPage::Load() {
       }
       ;
       [[fallthrough]];
-    case BehaviourSettingsPage::StartupBehaviour::Remember:
+    case StartupBehaviour::Remember:
       ui_->radiobutton_remember->setChecked(true);
       break;
   }
 #endif
 
-  QString name = language_map_.key(s.value("language").toString());
+  QString name = language_map_.key(s.value(kLanguage).toString());
   if (name.isEmpty()) {
     ui_->combobox_language->setCurrentIndex(0);
   }
@@ -205,19 +202,19 @@ void BehaviourSettingsPage::Load() {
     ui_->combobox_language->setCurrentIndex(ui_->combobox_language->findText(name));
   }
 
-  ui_->combobox_menuplaymode->setCurrentIndex(ui_->combobox_menuplaymode->findData(s.value("menu_playmode", static_cast<int>(PlayBehaviour::Never)).toInt()));
+  ui_->combobox_menuplaymode->setCurrentIndex(ui_->combobox_menuplaymode->findData(s.value(kMenuPlayMode, static_cast<int>(PlayBehaviour::Never)).toInt()));
 
-  ui_->combobox_previousmode->setCurrentIndex(ui_->combobox_previousmode->findData(s.value("menu_previousmode", static_cast<int>(PreviousBehaviour::DontRestart)).toInt()));
+  ui_->combobox_previousmode->setCurrentIndex(ui_->combobox_previousmode->findData(s.value(kMenuPreviousMode, static_cast<int>(PreviousBehaviour::DontRestart)).toInt()));
 
-  ui_->combobox_doubleclickaddmode->setCurrentIndex(ui_->combobox_doubleclickaddmode->findData(s.value("doubleclick_addmode", static_cast<int>(AddBehaviour::Append)).toInt()));
+  ui_->combobox_doubleclickaddmode->setCurrentIndex(ui_->combobox_doubleclickaddmode->findData(s.value(kDoubleClickAddMode, static_cast<int>(AddBehaviour::Append)).toInt()));
 
-  ui_->combobox_doubleclickplaymode->setCurrentIndex(ui_->combobox_doubleclickplaymode->findData(s.value("doubleclick_playmode", static_cast<int>(PlayBehaviour::Never)).toInt()));
+  ui_->combobox_doubleclickplaymode->setCurrentIndex(ui_->combobox_doubleclickplaymode->findData(s.value(kDoubleClickPlayMode, static_cast<int>(PlayBehaviour::Never)).toInt()));
 
-  ui_->combobox_doubleclickplaylistaddmode->setCurrentIndex(ui_->combobox_doubleclickplaylistaddmode->findData(s.value("doubleclick_playlist_addmode", static_cast<int>(PlaylistAddBehaviour::Play)).toInt()));
+  ui_->combobox_doubleclickplaylistaddmode->setCurrentIndex(ui_->combobox_doubleclickplaylistaddmode->findData(s.value(kDoubleClickPlaylistAddMode, static_cast<int>(PlaylistAddBehaviour::Play)).toInt()));
 
-  ui_->spinbox_seekstepsec->setValue(s.value("seek_step_sec", 10).toInt());
+  ui_->spinbox_seekstepsec->setValue(s.value(kSeekStepSec, 10).toInt());
 
-  ui_->spinbox_volumeincrement->setValue(s.value("volume_increment", 5).toInt());
+  ui_->spinbox_volumeincrement->setValue(s.value(kVolumeIncrement, 5).toInt());
 
   s.endGroup();
 
@@ -232,14 +229,14 @@ void BehaviourSettingsPage::Save() {
   Settings s;
   s.beginGroup(kSettingsGroup);
 
-  s.setValue("showtrayicon", ui_->checkbox_showtrayicon->isChecked());
-  s.setValue("keeprunning", ui_->checkbox_keeprunning->isChecked());
-  s.setValue("trayicon_progress", ui_->checkbox_trayicon_progress->isChecked());
+  s.setValue(kShowTrayIcon, ui_->checkbox_showtrayicon->isChecked());
+  s.setValue(kKeepRunning, ui_->checkbox_keeprunning->isChecked());
+  s.setValue(kTrayIconProgress, ui_->checkbox_trayicon_progress->isChecked());
 #if defined(HAVE_DBUS) && !defined(Q_OS_MACOS)
-  s.setValue("taskbar_progress", ui_->checkbox_taskbar_progress->isChecked());
+  s.setValue(kTaskbarProgress, ui_->checkbox_taskbar_progress->isChecked());
 #endif
-  s.setValue("resumeplayback", ui_->checkbox_resumeplayback->isChecked());
-  s.setValue("playing_widget", ui_->checkbox_playingwidget->isChecked());
+  s.setValue(kResumePlayback, ui_->checkbox_resumeplayback->isChecked());
+  s.setValue(kPlayingWidget, ui_->checkbox_playingwidget->isChecked());
 
   StartupBehaviour startup_behaviour = StartupBehaviour::Remember;
   if (ui_->radiobutton_remember->isChecked()) startup_behaviour = StartupBehaviour::Remember;
@@ -247,9 +244,9 @@ void BehaviourSettingsPage::Save() {
   if (ui_->radiobutton_hide->isChecked()) startup_behaviour = StartupBehaviour::Hide;
   if (ui_->radiobutton_show_maximized->isChecked()) startup_behaviour = StartupBehaviour::ShowMaximized;
   if (ui_->radiobutton_show_minimized->isChecked()) startup_behaviour = StartupBehaviour::ShowMinimized;
-  s.setValue("startupbehaviour", static_cast<int>(startup_behaviour));
+  s.setValue(kStartupBehaviour, static_cast<int>(startup_behaviour));
 
-  s.setValue("language", language_map_.contains(ui_->combobox_language->currentText()) ? language_map_[ui_->combobox_language->currentText()] : QString());
+  s.setValue(kLanguage, language_map_.contains(ui_->combobox_language->currentText()) ? language_map_[ui_->combobox_language->currentText()] : QString());
 
   const PlayBehaviour menu_playmode = static_cast<PlayBehaviour>(ui_->combobox_menuplaymode->currentData().toInt());
 
@@ -260,21 +257,21 @@ void BehaviourSettingsPage::Save() {
 
   const PlaylistAddBehaviour doubleclick_playlist_addmode = static_cast<PlaylistAddBehaviour>(ui_->combobox_doubleclickplaylistaddmode->currentData().toInt());
 
-  s.setValue("menu_playmode", static_cast<int>(menu_playmode));
-  s.setValue("menu_previousmode", static_cast<int>(menu_previousmode));
-  s.setValue("doubleclick_addmode", static_cast<int>(doubleclick_addmode));
-  s.setValue("doubleclick_playmode", static_cast<int>(doubleclick_playmode));
-  s.setValue("doubleclick_playlist_addmode", static_cast<int>(doubleclick_playlist_addmode));
+  s.setValue(kMenuPlayMode, static_cast<int>(menu_playmode));
+  s.setValue(kMenuPreviousMode, static_cast<int>(menu_previousmode));
+  s.setValue(kDoubleClickAddMode, static_cast<int>(doubleclick_addmode));
+  s.setValue(kDoubleClickPlayMode, static_cast<int>(doubleclick_playmode));
+  s.setValue(kDoubleClickPlaylistAddMode, static_cast<int>(doubleclick_playlist_addmode));
 
-  s.setValue("seek_step_sec", ui_->spinbox_seekstepsec->value());
+  s.setValue(kSeekStepSec, ui_->spinbox_seekstepsec->value());
 
-  s.setValue("volume_increment", ui_->spinbox_volumeincrement->value());
+  s.setValue(kVolumeIncrement, ui_->spinbox_volumeincrement->value());
 
   s.endGroup();
 
 }
 
-void BehaviourSettingsPage::ShowTrayIconToggled(bool on) {
+void BehaviourSettingsPage::ShowTrayIconToggled(const bool on) {
 
   ui_->radiobutton_hide->setEnabled(on);
   if (!on && ui_->radiobutton_hide->isChecked()) ui_->radiobutton_remember->setChecked(true);

@@ -26,7 +26,7 @@
 #include <QSize>
 #include <QString>
 
-#include "core/shared_ptr.h"
+#include "includes/shared_ptr.h"
 
 class QPaintEvent;
 
@@ -47,7 +47,7 @@ class MultiLoadingIndicator : public QWidget {
   void TaskCountChange(const int tasks);
 
  protected:
-  void paintEvent(QPaintEvent*) override;
+  void paintEvent(QPaintEvent *e) override;
 
  private Q_SLOTS:
   void UpdateText();

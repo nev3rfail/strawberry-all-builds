@@ -2,23 +2,22 @@ Source: strawberry
 Section: sound
 Priority: optional
 Maintainer: Jonas Kvinge <jonas@jkvinge.net>
-Build-Depends: debhelper (>= 11),
+Build-Depends: debhelper-compat (= 12),
                git,
                make,
                cmake,
                gcc,
                g++,
-               protobuf-compiler,
                libglib2.0-dev,
-               libdbus-1-dev,
-               libprotobuf-dev,
                libboost-dev,
                libsqlite3-dev,
                libasound2-dev,
                libpulse-dev,
                libtag1-dev,
                libicu-dev,
+               libxkbcommon-dev,
                qt6-base-dev,
+               qt6-base-private-dev,
                qt6-base-dev-tools,
                qt6-tools-dev,
                qt6-tools-dev-tools,
@@ -30,8 +29,9 @@ Build-Depends: debhelper (>= 11),
                libmtp-dev,
                libchromaprint-dev,
                libfftw3-dev,
-               libebur128-dev
-Standards-Version: 4.6.1
+               libebur128-dev,
+               libsparsehash-dev
+Standards-Version: 4.7.0
 
 Package: strawberry
 Architecture: any

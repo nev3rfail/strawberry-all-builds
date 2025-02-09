@@ -59,11 +59,10 @@
 #include <QtEvents>
 #include <QSettings>
 
-#include "core/application.h"
-#include "core/player.h"
-#include "core/qt_blurimage.h"
+#include "includes/qt_blurimage.h"
 #include "core/song.h"
 #include "core/settings.h"
+#include "core/player.h"
 #include "playlistmanager.h"
 #include "playlist.h"
 #include "playlistdelegates.h"
@@ -73,15 +72,15 @@
 #include "playlistproxystyle.h"
 #include "covermanager/currentalbumcoverloader.h"
 #include "covermanager/albumcoverloaderresult.h"
-#include "settings/appearancesettingspage.h"
-#include "settings/playlistsettingspage.h"
+#include "constants/appearancesettings.h"
+#include "constants/playlistsettings.h"
 #include "dynamicplaylistcontrols.h"
 
 #ifdef HAVE_MOODBAR
 #  include "moodbar/moodbaritemdelegate.h"
 #endif
 
-using namespace Qt::StringLiterals;
+using namespace Qt::Literals::StringLiterals;
 
 namespace {
 constexpr int kGlowIntensitySteps = 24;
@@ -92,18 +91,17 @@ constexpr int kDropIndicatorGradientWidth = 5;
 
 PlaylistView::PlaylistView(QWidget *parent)
     : QTreeView(parent),
-      app_(nullptr),
       style_(new PlaylistProxyStyle(QApplication::style()->name())),
       playlist_(nullptr),
       header_(new PlaylistHeader(Qt::Horizontal, this, this)),
-      background_image_type_(AppearanceSettingsPage::BackgroundImageType::Default),
-      background_image_position_(AppearanceSettingsPage::BackgroundImagePosition::BottomRight),
+      background_image_type_(AppearanceSettings::BackgroundImageType::Default),
+      background_image_position_(AppearanceSettings::BackgroundImagePosition::BottomRight),
       background_image_maxsize_(0),
       background_image_stretch_(false),
       background_image_do_not_cut_(true),
       background_image_keep_aspect_ratio_(true),
-      blur_radius_(AppearanceSettingsPage::kDefaultBlurRadius),
-      opacity_level_(AppearanceSettingsPage::kDefaultOpacityLevel),
+      blur_radius_(AppearanceSettings::kDefaultBlurRadius),
+      opacity_level_(AppearanceSettings::kDefaultOpacityLevel),
       background_initialized_(false),
       set_initial_header_layout_(false),
       header_state_loaded_(false),
@@ -128,8 +126,8 @@ PlaylistView::PlaylistView(QWidget *parent)
       inhibit_autoscroll_(false),
       currently_autoscrolling_(false),
       row_height_(-1),
-      currenttrack_play_(QStringLiteral(":/pictures/currenttrack_play.png")),
-      currenttrack_pause_(QStringLiteral(":/pictures/currenttrack_pause.png")),
+      currenttrack_play_(u":/pictures/currenttrack_play.png"_s),
+      currenttrack_pause_(u":/pictures/currenttrack_pause.png"_s),
       cached_current_row_row_(-1),
       drop_indicator_row_(-1),
       drag_over_(false),
@@ -152,7 +150,7 @@ PlaylistView::PlaylistView(QWidget *parent)
   setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
 #endif
 
-  QObject::connect(header_, &PlaylistHeader::sectionResized, this, &PlaylistView::SetHeaderState);
+  QObject::connect(header_, &PlaylistHeader::sectionResized, this, &PlaylistView::HeaderSectionResized);
   QObject::connect(header_, &PlaylistHeader::sectionMoved, this, &PlaylistView::SetHeaderState);
   QObject::connect(header_, &PlaylistHeader::sortIndicatorChanged, this, &PlaylistView::SetHeaderState);
   QObject::connect(header_, &PlaylistHeader::SectionVisibilityChanged, this, &PlaylistView::SetHeaderState);
@@ -179,7 +177,7 @@ PlaylistView::PlaylistView(QWidget *parent)
 
   // For fading
   QObject::connect(fade_animation_, &QTimeLine::valueChanged, this, &PlaylistView::FadePreviousBackgroundImage);
-  fade_animation_->setDirection(QTimeLine::Backward);  // 1.0 -> 0.0
+  fade_animation_->setDirection(QTimeLine::Direction::Backward);  // 1.0 -> 0.0
 
 }
 
@@ -187,18 +185,30 @@ PlaylistView::~PlaylistView() {
   style_->deleteLater();
 }
 
-void PlaylistView::Init(Application *app) {
+void PlaylistView::Init(const SharedPtr<Player> player,
+                        const SharedPtr<PlaylistManager> playlist_manager,
+                        const SharedPtr<CollectionBackend> collection_backend,
+#ifdef HAVE_MOODBAR
+                        const SharedPtr<MoodbarLoader> moodbar_loader,
+#endif
+                        const SharedPtr<CurrentAlbumCoverLoader> current_albumcover_loader) {
 
-  Q_ASSERT(app);
-  app_ = app;
+  player_ = player;
+  playlist_manager_ = playlist_manager;
+  collection_backend_ = collection_backend;
+  current_albumcover_loader_ = current_albumcover_loader;
+
+#ifdef HAVE_MOODBAR
+  moodbar_loader_ = moodbar_loader;
+#endif
 
   SetItemDelegates();
 
-  QObject::connect(&*app_->playlist_manager(), &PlaylistManager::CurrentSongChanged, this, &PlaylistView::SongChanged);
-  QObject::connect(&*app_->current_albumcover_loader(), &CurrentAlbumCoverLoader::AlbumCoverLoaded, this, &PlaylistView::AlbumCoverLoaded);
-  QObject::connect(&*app_->player(), &Player::Playing, this, &PlaylistView::StartGlowing);
-  QObject::connect(&*app_->player(), &Player::Paused, this, &PlaylistView::StopGlowing);
-  QObject::connect(&*app_->player(), &Player::Stopped, this, &PlaylistView::Stopped);
+  QObject::connect(&*playlist_manager, &PlaylistManager::CurrentSongChanged, this, &PlaylistView::SongChanged);
+  QObject::connect(&*current_albumcover_loader_, &CurrentAlbumCoverLoader::AlbumCoverLoaded, this, &PlaylistView::AlbumCoverLoaded);
+  QObject::connect(&*player, &Player::Playing, this, &PlaylistView::StartGlowing);
+  QObject::connect(&*player, &Player::Paused, this, &PlaylistView::StopGlowing);
+  QObject::connect(&*player, &Player::Stopped, this, &PlaylistView::Stopped);
 
 }
 
@@ -207,13 +217,13 @@ void PlaylistView::SetItemDelegates() {
   setItemDelegate(new PlaylistDelegateBase(this));
 
   setItemDelegateForColumn(static_cast<int>(Playlist::Column::Title), new TextItemDelegate(this));
-  setItemDelegateForColumn(static_cast<int>(Playlist::Column::Album), new TagCompletionItemDelegate(this, app_->collection_backend(), Playlist::Column::Album));
-  setItemDelegateForColumn(static_cast<int>(Playlist::Column::Artist), new TagCompletionItemDelegate(this, app_->collection_backend(), Playlist::Column::Artist));
-  setItemDelegateForColumn(static_cast<int>(Playlist::Column::AlbumArtist), new TagCompletionItemDelegate(this, app_->collection_backend(), Playlist::Column::AlbumArtist));
-  setItemDelegateForColumn(static_cast<int>(Playlist::Column::Genre), new TagCompletionItemDelegate(this, app_->collection_backend(), Playlist::Column::Genre));
-  setItemDelegateForColumn(static_cast<int>(Playlist::Column::Composer), new TagCompletionItemDelegate(this, app_->collection_backend(), Playlist::Column::Composer));
-  setItemDelegateForColumn(static_cast<int>(Playlist::Column::Performer), new TagCompletionItemDelegate(this, app_->collection_backend(), Playlist::Column::Performer));
-  setItemDelegateForColumn(static_cast<int>(Playlist::Column::Grouping), new TagCompletionItemDelegate(this, app_->collection_backend(), Playlist::Column::Grouping));
+  setItemDelegateForColumn(static_cast<int>(Playlist::Column::Album), new TagCompletionItemDelegate(this, collection_backend_, Playlist::Column::Album));
+  setItemDelegateForColumn(static_cast<int>(Playlist::Column::Artist), new TagCompletionItemDelegate(this, collection_backend_, Playlist::Column::Artist));
+  setItemDelegateForColumn(static_cast<int>(Playlist::Column::AlbumArtist), new TagCompletionItemDelegate(this, collection_backend_, Playlist::Column::AlbumArtist));
+  setItemDelegateForColumn(static_cast<int>(Playlist::Column::Genre), new TagCompletionItemDelegate(this, collection_backend_, Playlist::Column::Genre));
+  setItemDelegateForColumn(static_cast<int>(Playlist::Column::Composer), new TagCompletionItemDelegate(this, collection_backend_, Playlist::Column::Composer));
+  setItemDelegateForColumn(static_cast<int>(Playlist::Column::Performer), new TagCompletionItemDelegate(this, collection_backend_, Playlist::Column::Performer));
+  setItemDelegateForColumn(static_cast<int>(Playlist::Column::Grouping), new TagCompletionItemDelegate(this, collection_backend_, Playlist::Column::Grouping));
   setItemDelegateForColumn(static_cast<int>(Playlist::Column::Length), new LengthItemDelegate(this));
   setItemDelegateForColumn(static_cast<int>(Playlist::Column::Filesize), new SizeItemDelegate(this));
   setItemDelegateForColumn(static_cast<int>(Playlist::Column::Filetype), new FileTypeItemDelegate(this));
@@ -230,7 +240,7 @@ void PlaylistView::SetItemDelegates() {
   setItemDelegateForColumn(static_cast<int>(Playlist::Column::Source), new SongSourceDelegate(this));
 
 #ifdef HAVE_MOODBAR
-  setItemDelegateForColumn(static_cast<int>(Playlist::Column::Mood), new MoodbarItemDelegate(app_, this, this));
+  setItemDelegateForColumn(static_cast<int>(Playlist::Column::Mood), new MoodbarItemDelegate(moodbar_loader_, this, this));
 #endif
 
   rating_delegate_ = new RatingItemDelegate(this);
@@ -293,12 +303,12 @@ void PlaylistView::SetPlaylist(Playlist *playlist) {
 void PlaylistView::LoadHeaderState() {
 
   Settings s;
-  s.beginGroup(Playlist::kSettingsGroup);
-  if (s.contains("state")) {
-    header_state_version_ = s.value("state_version", 0).toInt();
-    header_state_ = s.value("state").toByteArray();
+  s.beginGroup(PlaylistSettings::kSettingsGroup);
+  if (s.contains(PlaylistSettings::kState)) {
+    header_state_version_ = s.value(PlaylistSettings::kStateVersion, 0).toInt();
+    header_state_ = s.value(PlaylistSettings::kState).toByteArray();
   }
-  if (s.contains("column_alignments")) column_alignment_ = s.value("column_alignments").value<ColumnAlignmentMap>();
+  if (s.contains(PlaylistSettings::kColumnAlignments)) column_alignment_ = s.value(PlaylistSettings::kColumnAlignments).value<ColumnAlignmentMap>();
   s.endGroup();
 
   if (column_alignment_.isEmpty()) {
@@ -413,11 +423,22 @@ void PlaylistView::RestoreHeaderState() {
 
 }
 
+void PlaylistView::HeaderSectionResized(const int logical_index, const int old_size, const int new_size) {
+
+  Q_UNUSED(logical_index)
+  Q_UNUSED(old_size)
+
+  if (new_size != 0) {
+    SetHeaderState();
+  }
+
+}
+
 void PlaylistView::ReloadBarPixmaps() {
 
-  currenttrack_bar_left_ = LoadBarPixmap(QStringLiteral(":/pictures/currenttrack_bar_left.png"), true);
-  currenttrack_bar_mid_ = LoadBarPixmap(QStringLiteral(":/pictures/currenttrack_bar_mid.png"), false);
-  currenttrack_bar_right_ = LoadBarPixmap(QStringLiteral(":/pictures/currenttrack_bar_right.png"), true);
+  currenttrack_bar_left_ = LoadBarPixmap(u":/pictures/currenttrack_bar_left.png"_s, true);
+  currenttrack_bar_mid_ = LoadBarPixmap(u":/pictures/currenttrack_bar_mid.png"_s, false);
+  currenttrack_bar_right_ = LoadBarPixmap(u":/pictures/currenttrack_bar_right.png"_s, true);
 
 }
 
@@ -463,8 +484,8 @@ QList<QPixmap> PlaylistView::LoadBarPixmap(const QString &filename, const bool k
 
 void PlaylistView::LoadTinyPlayPausePixmaps(const int desired_size) {
 
-  QImage image_play = QImage(QStringLiteral(":/pictures/tiny-play.png")).scaled(desired_size, desired_size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-  QImage image_pause = QImage(QStringLiteral(":/pictures/tiny-pause.png")).scaled(desired_size, desired_size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+  QImage image_play = QImage(u":/pictures/tiny-play.png"_s).scaled(desired_size, desired_size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+  QImage image_pause = QImage(u":/pictures/tiny-pause.png"_s).scaled(desired_size, desired_size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
   pixmap_tinyplay_ = QPixmap::fromImage(image_play);
   pixmap_tinypause_ = QPixmap::fromImage(image_pause);
 
@@ -851,10 +872,10 @@ void PlaylistView::mousePressEvent(QMouseEvent *event) {
   if (idx.isValid()) {
     switch (event->button()) {
       case Qt::XButton1:
-        app_->player()->Previous();
+        player_->Previous();
         break;
       case Qt::XButton2:
-        app_->player()->Next();
+        player_->Next();
         break;
       case Qt::LeftButton:{
         if (idx.data(Playlist::Role_CanSetRating).toBool() && !rating_locked_) {
@@ -972,7 +993,7 @@ void PlaylistView::paintEvent(QPaintEvent *event) {
   // The cached pixmap gets invalidated in dragLeaveEvent, dropEvent and scrollContentsBy.
 
   // Draw background
-  if (background_image_type_ == AppearanceSettingsPage::BackgroundImageType::Custom || background_image_type_ == AppearanceSettingsPage::BackgroundImageType::Album) {
+  if (background_image_type_ == AppearanceSettings::BackgroundImageType::Custom || background_image_type_ == AppearanceSettings::BackgroundImageType::Album) {
     if (!background_image_.isNull() || !previous_background_image_.isNull()) {
       QPainter background_painter(viewport());
 
@@ -1023,23 +1044,23 @@ void PlaylistView::paintEvent(QPaintEvent *event) {
           background_painter.setOpacity(1.0 - previous_background_image_opacity_);
         }
         switch (background_image_position_) {
-          case AppearanceSettingsPage::BackgroundImagePosition::UpperLeft:
+          case AppearanceSettings::BackgroundImagePosition::UpperLeft:
             current_background_image_x_ = 0;
             current_background_image_y_ = 0;
             break;
-          case AppearanceSettingsPage::BackgroundImagePosition::UpperRight:
+          case AppearanceSettings::BackgroundImagePosition::UpperRight:
             current_background_image_x_ = (pb_width - cached_scaled_background_image_.width());
             current_background_image_y_ = 0;
             break;
-          case AppearanceSettingsPage::BackgroundImagePosition::Middle:
+          case AppearanceSettings::BackgroundImagePosition::Middle:
             current_background_image_x_ = ((pb_width - cached_scaled_background_image_.width()) / 2);
             current_background_image_y_ = ((pb_height - cached_scaled_background_image_.height()) / 2);
             break;
-          case AppearanceSettingsPage::BackgroundImagePosition::BottomLeft:
+          case AppearanceSettings::BackgroundImagePosition::BottomLeft:
             current_background_image_x_ = 0;
             current_background_image_y_ = (pb_height - cached_scaled_background_image_.height());
             break;
-          case AppearanceSettingsPage::BackgroundImagePosition::BottomRight:
+          case AppearanceSettings::BackgroundImagePosition::BottomRight:
           default:
             current_background_image_x_ = (pb_width - cached_scaled_background_image_.width());
             current_background_image_y_ = (pb_height - cached_scaled_background_image_.height());
@@ -1169,32 +1190,32 @@ void PlaylistView::ReloadSettings() {
 
   Settings s;
 
-  s.beginGroup(PlaylistSettingsPage::kSettingsGroup);
-  bars_enabled_ = s.value("show_bars", true).toBool();
+  s.beginGroup(PlaylistSettings::kSettingsGroup);
+  bars_enabled_ = s.value(PlaylistSettings::kShowBars, true).toBool();
 #ifdef Q_OS_MACOS
   bool glow_effect = false;
 #else
   bool glow_effect = true;
 #endif
-  glow_enabled_ = bars_enabled_ && s.value("glow_effect", glow_effect).toBool();
-  bool editmetadatainline = s.value("editmetadatainline", false).toBool();
-  select_track_ = s.value("select_track", false).toBool();
-  auto_sort_ = s.value("auto_sort", false).toBool();
-  setAlternatingRowColors(s.value("alternating_row_colors", true).toBool());
+  glow_enabled_ = bars_enabled_ && s.value(PlaylistSettings::kGlowEffect, glow_effect).toBool();
+  bool editmetadatainline = s.value(PlaylistSettings::kEditMetadataInline, false).toBool();
+  select_track_ = s.value(PlaylistSettings::kSelectTrack, false).toBool();
+  auto_sort_ = s.value(PlaylistSettings::kAutoSort, false).toBool();
+  setAlternatingRowColors(s.value(PlaylistSettings::kAlternatingRowColors, true).toBool());
   s.endGroup();
 
-  s.beginGroup(AppearanceSettingsPage::kSettingsGroup);
-  QVariant background_image_type_var = s.value(AppearanceSettingsPage::kBackgroundImageType);
-  QVariant background_image_position_var = s.value(AppearanceSettingsPage::kBackgroundImagePosition);
-  int background_image_maxsize = s.value(AppearanceSettingsPage::kBackgroundImageMaxSize).toInt();
+  s.beginGroup(AppearanceSettings::kSettingsGroup);
+  QVariant background_image_type_var = s.value(AppearanceSettings::kBackgroundImageType);
+  QVariant background_image_position_var = s.value(AppearanceSettings::kBackgroundImagePosition);
+  int background_image_maxsize = s.value(AppearanceSettings::kBackgroundImageMaxSize).toInt();
   if (background_image_maxsize <= 10) background_image_maxsize = 9000;
-  QString background_image_filename = s.value(AppearanceSettingsPage::kBackgroundImageFilename).toString();
-  bool background_image_stretch = s.value(AppearanceSettingsPage::kBackgroundImageStretch, false).toBool();
-  bool background_image_do_not_cut = s.value(AppearanceSettingsPage::kBackgroundImageDoNotCut, true).toBool();
-  bool background_image_keep_aspect_ratio = s.value(AppearanceSettingsPage::kBackgroundImageKeepAspectRatio, true).toBool();
-  int blur_radius = s.value(AppearanceSettingsPage::kBlurRadius, AppearanceSettingsPage::kDefaultBlurRadius).toInt();
-  int opacity_level = s.value(AppearanceSettingsPage::kOpacityLevel, AppearanceSettingsPage::kDefaultOpacityLevel).toInt();
-  QColor playlist_playing_song_color = s.value(AppearanceSettingsPage::kPlaylistPlayingSongColor).value<QColor>();
+  QString background_image_filename = s.value(AppearanceSettings::kBackgroundImageFilename).toString();
+  bool background_image_stretch = s.value(AppearanceSettings::kBackgroundImageStretch, false).toBool();
+  bool background_image_do_not_cut = s.value(AppearanceSettings::kBackgroundImageDoNotCut, true).toBool();
+  bool background_image_keep_aspect_ratio = s.value(AppearanceSettings::kBackgroundImageKeepAspectRatio, true).toBool();
+  int blur_radius = s.value(AppearanceSettings::kBlurRadius, AppearanceSettings::kDefaultBlurRadius).toInt();
+  int opacity_level = s.value(AppearanceSettings::kOpacityLevel, AppearanceSettings::kDefaultOpacityLevel).toInt();
+  QColor playlist_playing_song_color = s.value(AppearanceSettings::kPlaylistPlayingSongColor).value<QColor>();
   if (playlist_playing_song_color != playlist_playing_song_color_) {
     row_height_ = -1;
   }
@@ -1205,20 +1226,20 @@ void PlaylistView::ReloadSettings() {
   if (!glow_enabled_) StopGlowing();
 
   // Background:
-  AppearanceSettingsPage::BackgroundImageType background_image_type(AppearanceSettingsPage::BackgroundImageType::Default);
+  AppearanceSettings::BackgroundImageType background_image_type(AppearanceSettings::BackgroundImageType::Default);
   if (background_image_type_var.isValid()) {
-    background_image_type = static_cast<AppearanceSettingsPage::BackgroundImageType>(background_image_type_var.toInt());
+    background_image_type = static_cast<AppearanceSettings::BackgroundImageType>(background_image_type_var.toInt());
   }
   else {
-    background_image_type = AppearanceSettingsPage::BackgroundImageType::Default;
+    background_image_type = AppearanceSettings::BackgroundImageType::Default;
   }
 
-  AppearanceSettingsPage::BackgroundImagePosition background_image_position(AppearanceSettingsPage::BackgroundImagePosition::BottomRight);
+  AppearanceSettings::BackgroundImagePosition background_image_position(AppearanceSettings::BackgroundImagePosition::BottomRight);
   if (background_image_position_var.isValid()) {
-    background_image_position = static_cast<AppearanceSettingsPage::BackgroundImagePosition>(background_image_position_var.toInt());
+    background_image_position = static_cast<AppearanceSettings::BackgroundImagePosition>(background_image_position_var.toInt());
   }
   else {
-    background_image_position = AppearanceSettingsPage::BackgroundImagePosition::BottomRight;
+    background_image_position = AppearanceSettings::BackgroundImagePosition::BottomRight;
   }
 
   // Check if background properties have changed.
@@ -1250,10 +1271,10 @@ void PlaylistView::ReloadSettings() {
     blur_radius_ = blur_radius;
     opacity_level_ = opacity_level;
 
-    if (background_image_type_ == AppearanceSettingsPage::BackgroundImageType::Custom) {
+    if (background_image_type_ == AppearanceSettings::BackgroundImageType::Custom) {
       set_background_image(QImage(background_image_filename));
     }
-    else if (background_image_type_ == AppearanceSettingsPage::BackgroundImageType::Album) {
+    else if (background_image_type_ == AppearanceSettings::BackgroundImageType::Album) {
       set_background_image(current_song_cover_art_);
     }
     else {
@@ -1263,8 +1284,8 @@ void PlaylistView::ReloadSettings() {
       cached_scaled_background_image_ = QPixmap();
       previous_background_image_ = QPixmap();
     }
-    setProperty("default_background_enabled", background_image_type_ == AppearanceSettingsPage::BackgroundImageType::Default);
-    setProperty("strawbs_background_enabled", background_image_type_ == AppearanceSettingsPage::BackgroundImageType::Strawbs);
+    setProperty("default_background_enabled", background_image_type_ == AppearanceSettings::BackgroundImageType::Default);
+    setProperty("strawbs_background_enabled", background_image_type_ == AppearanceSettings::BackgroundImageType::Strawbs);
     Q_EMIT BackgroundPropertyChanged();
     force_background_redraw_ = true;
   }
@@ -1283,11 +1304,11 @@ void PlaylistView::SaveSettings() {
   if (!header_state_loaded_ || read_only_settings_) return;
 
   Settings s;
-  s.beginGroup(Playlist::kSettingsGroup);
-  s.setValue("state_version", header_state_version_);
-  s.setValue("state", header_->SaveState());
-  s.setValue("column_alignments", QVariant::fromValue<ColumnAlignmentMap>(column_alignment_));
-  s.setValue("rating_locked", rating_locked_);
+  s.beginGroup(PlaylistSettings::kSettingsGroup);
+  s.setValue(PlaylistSettings::kStateVersion, header_state_version_);
+  s.setValue(PlaylistSettings::kState, header_->SaveState());
+  s.setValue(PlaylistSettings::kColumnAlignments, QVariant::fromValue<ColumnAlignmentMap>(column_alignment_));
+  s.setValue(PlaylistSettings::kRatingLocked, rating_locked_);
   s.endGroup();
 
 }
@@ -1424,7 +1445,7 @@ void PlaylistView::AlbumCoverLoaded(const Song &song, const AlbumCoverLoaderResu
 
   current_song_cover_art_ = result.album_cover.image;
 
-  if (background_image_type_ == AppearanceSettingsPage::BackgroundImageType::Album) {
+  if (background_image_type_ == AppearanceSettings::BackgroundImageType::Album) {
     set_background_image(result.success && result.type != AlbumCoverLoaderResult::Type::None && result.type != AlbumCoverLoaderResult::Type::Unset ? current_song_cover_art_ : QImage());
     force_background_redraw_ = true;
     update();
@@ -1466,7 +1487,9 @@ void PlaylistView::set_background_image(const QImage &image) {
 
   if (isVisible()) {
     previous_background_image_opacity_ = 1.0;
-    if (fade_animation_->state() == QTimeLine::Running) fade_animation_->stop();
+    if (fade_animation_->state() != QTimeLine::State::NotRunning) {
+      fade_animation_->stop();
+    }
     fade_animation_->start();
   }
 

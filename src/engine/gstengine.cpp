@@ -2,7 +2,7 @@
  *   Copyright (C) 2003-2005 by Mark Kretschmann <markey@web.de>           *
  *   Copyright (C) 2005 by Jakub Stachowski <qbast@go2.pl>                 *
  *   Copyright (C) 2006 Paul Cifarelli <paul@cifarelli.net>                *
- *   Copyright (C) 2017-2021 Jonas Kvinge <jonas@jkvinge.net>              *
+ *   Copyright (C) 2017-2024 Jonas Kvinge <jonas@jkvinge.net>              *
  *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *
  *   it under the terms of the GNU General Public License as published by  *
@@ -50,19 +50,23 @@
 #include <QMetaObject>
 #include <QTimerEvent>
 
-#include "core/shared_ptr.h"
+#include "includes/shared_ptr.h"
 #include "core/logging.h"
 #include "core/taskmanager.h"
 #include "core/signalchecker.h"
-#include "utilities/timeconstants.h"
+#include "core/enginemetadata.h"
+#include "constants/timeconstants.h"
 #include "enginebase.h"
 #include "gstengine.h"
 #include "gstenginepipeline.h"
 #include "gstbufferconsumer.h"
-#include "enginemetadata.h"
 
-using namespace Qt::StringLiterals;
-using std::make_shared;
+using namespace Qt::Literals::StringLiterals;
+
+#ifdef __clang__
+#  pragma clang diagnostic push
+#  pragma clang diagnostic ignored "-Wunused-const-variable"
+#endif
 
 const char *GstEngine::kAutoSink = "autoaudiosink";
 const char *GstEngine::kALSASink = "alsasink";
@@ -85,10 +89,13 @@ constexpr qint64 kPreloadGapNanosec = 8000 * kNsecPerMsec;     // 8s
 constexpr qint64 kSeekDelayNanosec = 100 * kNsecPerMsec;       // 100msec
 }  // namespace
 
+#ifdef __clang_
+#  pragma clang diagnostic pop
+#endif
+
 GstEngine::GstEngine(SharedPtr<TaskManager> task_manager, QObject *parent)
     : EngineBase(parent),
       task_manager_(task_manager),
-      gst_startup_(nullptr),
       discoverer_(nullptr),
       buffering_task_id_(-1),
       latest_buffer_(nullptr),
@@ -120,7 +127,6 @@ GstEngine::GstEngine(SharedPtr<TaskManager> task_manager, QObject *parent)
 
 GstEngine::~GstEngine() {
 
-  EnsureInitialized();
   current_pipeline_.reset();
 
   if (latest_buffer_) {
@@ -170,17 +176,15 @@ EngineBase::State GstEngine::state() const {
 
 }
 
-void GstEngine::StartPreloading(const QUrl &media_url, const QUrl &stream_url, const bool force_stop_at_end, const qint64 beginning_nanosec, const qint64 end_nanosec) {
-
-  EnsureInitialized();
+void GstEngine::StartPreloading(const QUrl &media_url, const QUrl &stream_url, const bool force_stop_at_end, const qint64 beginning_offset_nanosec, const qint64 end_offset_nanosec) {
 
   const QByteArray gst_url = FixupUrl(stream_url);
 
   // No crossfading, so we can just queue the new URL in the existing pipeline and get gapless playback (hopefully)
   if (current_pipeline_) {
-    current_pipeline_->PrepareNextUrl(media_url, stream_url, gst_url, beginning_nanosec, force_stop_at_end ? end_nanosec : 0);
+    current_pipeline_->PrepareNextUrl(media_url, stream_url, gst_url, beginning_offset_nanosec, force_stop_at_end ? end_offset_nanosec : 0);
     // Add request to discover the stream
-    if (discoverer_ && media_url.scheme() != QStringLiteral("spotify")) {
+    if (discoverer_ && media_url.scheme() != u"spotify"_s) {
       if (!gst_discoverer_discover_uri_async(discoverer_, gst_url.constData())) {
         qLog(Error) << "Failed to start stream discovery for" << gst_url;
       }
@@ -189,11 +193,9 @@ void GstEngine::StartPreloading(const QUrl &media_url, const QUrl &stream_url, c
 
 }
 
-bool GstEngine::Load(const QUrl &media_url, const QUrl &stream_url, const EngineBase::TrackChangeFlags change, const bool force_stop_at_end, const quint64 beginning_nanosec, const qint64 end_nanosec, const std::optional<double> ebur128_integrated_loudness_lufs) {
+bool GstEngine::Load(const QUrl &media_url, const QUrl &stream_url, const EngineBase::TrackChangeFlags change, const bool force_stop_at_end, const quint64 beginning_offset_nanosec, const qint64 end_offset_nanosec, const std::optional<double> ebur128_integrated_loudness_lufs) {
 
-  EnsureInitialized();
-
-  EngineBase::Load(media_url, stream_url, change, force_stop_at_end, beginning_nanosec, end_nanosec, ebur128_integrated_loudness_lufs);
+  EngineBase::Load(media_url, stream_url, change, force_stop_at_end, beginning_offset_nanosec, end_offset_nanosec, ebur128_integrated_loudness_lufs);
 
   const QByteArray gst_url = FixupUrl(stream_url);
 
@@ -203,13 +205,16 @@ bool GstEngine::Load(const QUrl &media_url, const QUrl &stream_url, const Engine
     crossfade = false;
   }
 
-  if (!crossfade && current_pipeline_ && current_pipeline_->stream_url() == stream_url && change & EngineBase::TrackChangeType::Auto) {
-    // We're not crossfading, and the pipeline is already playing the URI we want, so just do nothing.
-    current_pipeline_->SetEBUR128LoudnessNormalizingGain_dB(ebur128_loudness_normalizing_gain_db_);
-    return true;
+  if (!crossfade && current_pipeline_ && change & EngineBase::TrackChangeType::Auto) {
+    QMutexLocker l(current_pipeline_->mutex_url());
+    if (current_pipeline_->stream_url() == stream_url) {
+      // We're not crossfading, and the pipeline is already playing the URI we want, so just do nothing.
+      current_pipeline_->SetEBUR128LoudnessNormalizingGain_dB(ebur128_loudness_normalizing_gain_db_);
+      return true;
+    }
   }
 
-  GstEnginePipelinePtr pipeline = CreatePipeline(media_url, stream_url, gst_url, force_stop_at_end ? end_nanosec : 0, ebur128_loudness_normalizing_gain_db_);
+  GstEnginePipelinePtr pipeline = CreatePipeline(media_url, stream_url, gst_url, static_cast<qint64>(beginning_offset_nanosec), force_stop_at_end ? end_offset_nanosec : 0, ebur128_loudness_normalizing_gain_db_);
   if (!pipeline) return false;
 
   GstEnginePipelinePtr old_pipeline = current_pipeline_;
@@ -246,7 +251,7 @@ bool GstEngine::Load(const QUrl &media_url, const QUrl &stream_url, const Engine
   }
 
   // Add request to discover the stream
-  if (discoverer_ && media_url.scheme() != QStringLiteral("spotify")) {
+  if (discoverer_ && media_url.scheme() != u"spotify"_s) {
     if (!gst_discoverer_discover_uri_async(discoverer_, gst_url.constData())) {
       qLog(Error) << "Failed to start stream discovery for" << gst_url;
     }
@@ -258,9 +263,17 @@ bool GstEngine::Load(const QUrl &media_url, const QUrl &stream_url, const Engine
 
 bool GstEngine::Play(const bool pause, const quint64 offset_nanosec) {
 
-  EnsureInitialized();
+  if (!current_pipeline_ || current_pipeline_->is_buffering()) {
+    return false;
+  }
 
-  if (!current_pipeline_ || current_pipeline_->is_buffering() || current_pipeline_->state() == GstState::GST_STATE_PLAYING) return false;
+  if (current_pipeline_->state() == GstState::GST_STATE_PLAYING) {
+    if (offset_nanosec != 0 || beginning_offset_nanosec_ != 0) {
+      Seek(offset_nanosec);
+      PlayDone(GST_STATE_CHANGE_SUCCESS, false, offset_nanosec, current_pipeline_->id());
+    }
+    return true;
+  }
 
   if (OldExclusivePipelineActive()) {
     qLog(Debug) << "Delaying play because a exclusive pipeline is already active...";
@@ -285,7 +298,7 @@ bool GstEngine::Play(const bool pause, const quint64 offset_nanosec) {
     watcher->deleteLater();
     PlayDone(ret, pause, offset_nanosec, pipeline_id);
   });
-  QFuture<GstStateChangeReturn> future = current_pipeline_->Play(pause, beginning_nanosec_ + offset_nanosec);
+  QFuture<GstStateChangeReturn> future = current_pipeline_->Play(pause, beginning_offset_nanosec_ + offset_nanosec);
   watcher->setFuture(future);
 
   return true;
@@ -302,7 +315,7 @@ void GstEngine::Stop(const bool stop_after) {
 
   media_url_.clear();
   stream_url_.clear();  // To ensure we return Empty from state()
-  beginning_nanosec_ = end_nanosec_ = 0;
+  beginning_offset_nanosec_ = end_offset_nanosec_ = 0;
 
   // Check if we started a fade out. If it isn't finished yet and the user pressed stop, we cancel the fader and just stop the playback.
   if (fadeout_pause_pipeline_) {
@@ -345,7 +358,7 @@ void GstEngine::Pause() {
       StartFadeoutPause();
     }
     else {
-      current_pipeline_->SetStateAsync(GST_STATE_PAUSED);
+      current_pipeline_->SetState(GST_STATE_PAUSED);
       Q_EMIT StateChanged(State::Paused);
       StopTimers();
     }
@@ -367,7 +380,7 @@ void GstEngine::Unpause() {
       has_faded_out_to_pause_ = false;
     }
 
-    current_pipeline_->SetStateAsync(GST_STATE_PLAYING);
+    current_pipeline_->SetState(GST_STATE_PLAYING);
 
     Q_EMIT StateChanged(State::Playing);
 
@@ -380,7 +393,7 @@ void GstEngine::Seek(const quint64 offset_nanosec) {
 
   if (!current_pipeline_) return;
 
-  seek_pos_ = beginning_nanosec_ + offset_nanosec;
+  seek_pos_ = beginning_offset_nanosec_ + offset_nanosec;
   waiting_to_seek_ = true;
 
   if (!seek_timer_->isActive()) {
@@ -398,7 +411,7 @@ qint64 GstEngine::position_nanosec() const {
 
   if (!current_pipeline_) return 0;
 
-  const qint64 result = current_pipeline_->position() - static_cast<qint64>(beginning_nanosec_);
+  const qint64 result = current_pipeline_->position() - static_cast<qint64>(beginning_offset_nanosec_);
   return std::max(0LL, result);
 
 }
@@ -407,7 +420,7 @@ qint64 GstEngine::length_nanosec() const {
 
   if (!current_pipeline_) return 0;
 
-  const qint64 result = end_nanosec_ - static_cast<qint64>(beginning_nanosec_);
+  const qint64 result = end_offset_nanosec_ - static_cast<qint64>(beginning_offset_nanosec_);
 
   if (result > 0) {
     return result;
@@ -446,8 +459,6 @@ const EngineBase::Scope &GstEngine::scope(const int chunk_length) {
 
 EngineBase::OutputDetailsList GstEngine::GetOutputsList() const {
 
-  const_cast<GstEngine*>(this)->EnsureInitialized();
-
   OutputDetailsList outputs;
 
   GstRegistry *registry = gst_registry_get();
@@ -485,8 +496,6 @@ EngineBase::OutputDetailsList GstEngine::GetOutputsList() const {
 }
 
 bool GstEngine::ValidOutput(const QString &output) {
-
-  EnsureInitialized();
 
   const OutputDetailsList output_details = GetOutputsList();
   return std::any_of(output_details.begin(), output_details.end(), [output](const OutputDetails &output_detail) { return output_detail.name == output; });
@@ -596,6 +605,8 @@ void GstEngine::EndOfStreamReached(const int pipeline_id, const bool has_next_tr
   }
 
   if (!has_next_track) {
+    GstEnginePipelinePtr old_pipeline = current_pipeline_;
+    FinishPipeline(old_pipeline);
     current_pipeline_ = GstEnginePipelinePtr();
     BufferingFinished();
   }
@@ -617,8 +628,9 @@ void GstEngine::HandlePipelineError(const int pipeline_id, const int domain, con
 
   if (current_pipeline_ && current_pipeline_->id() == pipeline_id) {
 
-    FinishPipeline(current_pipeline_);
+    GstEnginePipelinePtr pipeline = current_pipeline_;
     current_pipeline_ = GstEnginePipelinePtr();
+    FinishPipeline(pipeline);
 
     BufferingFinished();
     Q_EMIT StateChanged(State::Error);
@@ -685,7 +697,7 @@ void GstEngine::FadeoutPauseFinished() {
 
   if (!fadeout_pause_pipeline_) return;
 
-  fadeout_pause_pipeline_->SetStateAsync(GST_STATE_PAUSED);
+  fadeout_pause_pipeline_->SetState(GST_STATE_PAUSED);
   Q_EMIT StateChanged(State::Paused);
   StopTimers();
   has_faded_out_to_pause_ = true;
@@ -739,7 +751,7 @@ void GstEngine::PlayDone(const GstStateChangeReturn ret, const bool pause, const
         stream_url = old_pipeline->stream_url();
         stream_url.detach();
       }
-      current_pipeline_ = CreatePipeline(media_url, stream_url, redirect_url, end_nanosec_, old_pipeline->ebur128_loudness_normalizing_gain_db());
+      current_pipeline_ = CreatePipeline(media_url, stream_url, redirect_url, beginning_offset_nanosec_, end_offset_nanosec_, old_pipeline->ebur128_loudness_normalizing_gain_db());
       FinishPipeline(old_pipeline);
       Play(pause, offset_nanosec);
       return;
@@ -758,7 +770,7 @@ void GstEngine::PlayDone(const GstStateChangeReturn ret, const bool pause, const
 
   Q_EMIT StateChanged(pause ? State::Paused : State::Playing);
 
-  // We've successfully started playing a media stream with this url
+  // We've successfully started playing a media stream with this URL
   Q_EMIT ValidSongRequested(stream_url_);
 
 }
@@ -788,8 +800,6 @@ void GstEngine::BufferingFinished() {
 }
 
 QByteArray GstEngine::FixupUrl(const QUrl &url) {
-
-  EnsureInitialized();
 
   QByteArray uri;
 
@@ -886,9 +896,7 @@ void GstEngine::StopTimers() {
 
 GstEnginePipelinePtr GstEngine::CreatePipeline() {
 
-  EnsureInitialized();
-
-  GstEnginePipelinePtr pipeline = make_shared<GstEnginePipeline>();
+  GstEnginePipelinePtr pipeline = GstEnginePipelinePtr(new GstEnginePipeline);
   pipeline->set_output_device(output_, device_);
   pipeline->set_exclusive_mode(exclusive_mode_);
   pipeline->set_volume_enabled(volume_control_);
@@ -906,7 +914,7 @@ GstEnginePipelinePtr GstEngine::CreatePipeline() {
   pipeline->set_fading_enabled(fadeout_enabled_ || autocrossfade_enabled_ || fadeout_pause_enabled_);
 
 #ifdef HAVE_SPOTIFY
-  pipeline->set_spotify_login(spotify_username_, spotify_password_);
+  pipeline->set_spotify_access_token(spotify_access_token_);
 #endif
 
   pipeline->AddBufferConsumer(this);
@@ -927,11 +935,11 @@ GstEnginePipelinePtr GstEngine::CreatePipeline() {
 
 }
 
-GstEnginePipelinePtr GstEngine::CreatePipeline(const QUrl &media_url, const QUrl &stream_url, const QByteArray &gst_url, const qint64 end_nanosec, const double ebur128_loudness_normalizing_gain_db) {
+GstEnginePipelinePtr GstEngine::CreatePipeline(const QUrl &media_url, const QUrl &stream_url, const QByteArray &gst_url, const qint64 beginning_offset_nanosec, const qint64 end_offset_nanosec, const double ebur128_loudness_normalizing_gain_db) {
 
   GstEnginePipelinePtr ret = CreatePipeline();
   QString error;
-  if (!ret->InitFromUrl(media_url, stream_url, gst_url, end_nanosec, ebur128_loudness_normalizing_gain_db, error)) {
+  if (!ret->InitFromUrl(media_url, stream_url, gst_url, beginning_offset_nanosec, end_offset_nanosec, ebur128_loudness_normalizing_gain_db, error)) {
     ret.reset();
     Q_EMIT Error(error);
     Q_EMIT StateChanged(State::Error);
@@ -948,7 +956,10 @@ void GstEngine::FinishPipeline(GstEnginePipelinePtr pipeline) {
 
   QObject::disconnect(&*pipeline, nullptr, this, nullptr);
 
-  if (!pipeline->Finish() && !old_pipelines_.contains(pipeline->id())) {
+  if (pipeline->Finish()) {
+    PipelineFinished(pipeline_id);
+  }
+  else if (!old_pipelines_.contains(pipeline->id())) {
     old_pipelines_.insert(pipeline_id, pipeline);
     QObject::connect(&*pipeline, &GstEnginePipeline::Finished, this, [this, pipeline_id]() {
       PipelineFinished(pipeline_id);
@@ -961,12 +972,19 @@ void GstEngine::PipelineFinished(const int pipeline_id) {
 
   qLog(Debug) << "Pipeline" << pipeline_id << "finished";
 
-  GstEnginePipelinePtr pipeline = old_pipelines_.value(pipeline_id);
-  old_pipelines_.remove(pipeline_id);
-  if (pipeline == fadeout_pause_pipeline_) {
-    StopFadeoutPause();
+  if (old_pipelines_.contains(pipeline_id)) {
+    GstEnginePipelinePtr pipeline = old_pipelines_.value(pipeline_id);
+    old_pipelines_.remove(pipeline_id);
+    if (pipeline == fadeout_pause_pipeline_) {
+      StopFadeoutPause();
+    }
   }
-  pipeline = GstEnginePipelinePtr();
+
+  qLog(Debug) << (current_pipeline_ ? 1 : 0) + old_pipelines_.count() << "pipelines are active";
+
+  if (!current_pipeline_ && old_pipelines_.isEmpty()) {
+    Q_EMIT Finished();
+  }
 
   if (current_pipeline_ && old_pipelines_.isEmpty() && delayed_state_ != State::Empty) {
     switch (delayed_state_) {
@@ -982,12 +1000,6 @@ void GstEngine::PipelineFinished(const int pipeline_id) {
     delayed_state_ = State::Empty;
     delayed_state_pause_ = false;
     delayed_state_offset_nanosec_ = 0;
-  }
-
-  qLog(Debug) << (current_pipeline_ ? 1 : 0) + old_pipelines_.count() << "pipelines are active";
-
-  if (!current_pipeline_ && old_pipelines_.isEmpty()) {
-    Q_EMIT Finished();
   }
 
 }
@@ -1054,7 +1066,10 @@ void GstEngine::UpdateScope(const int chunk_length) {
 
 }
 
-void GstEngine::StreamDiscovered(GstDiscoverer*, GstDiscovererInfo *info, GError*, gpointer self) {
+void GstEngine::StreamDiscovered(GstDiscoverer *discoverer, GstDiscovererInfo *info, GError *error, gpointer self) {
+
+  Q_UNUSED(discoverer)
+  Q_UNUSED(error)
 
   GstEngine *instance = reinterpret_cast<GstEngine*>(self);
   if (!instance->current_pipeline_) return;
@@ -1137,17 +1152,20 @@ void GstEngine::StreamDiscovered(GstDiscoverer*, GstDiscovererInfo *info, GError
 
 }
 
-void GstEngine::StreamDiscoveryFinished(GstDiscoverer*, gpointer) {}
+void GstEngine::StreamDiscoveryFinished(GstDiscoverer *discoverer, gpointer self) {
+  Q_UNUSED(discoverer)
+  Q_UNUSED(self)
+}
 
 QString GstEngine::GSTdiscovererErrorMessage(GstDiscovererResult result) {
 
   switch (result) {
-    case GST_DISCOVERER_URI_INVALID:     return QStringLiteral("The URI is invalid");
-    case GST_DISCOVERER_TIMEOUT:         return QStringLiteral("The discovery timed-out");
-    case GST_DISCOVERER_BUSY:            return QStringLiteral("The discoverer was already discovering a file");
-    case GST_DISCOVERER_MISSING_PLUGINS: return QStringLiteral("Some plugins are missing for full discovery");
+    case GST_DISCOVERER_URI_INVALID:     return u"The URI is invalid"_s;
+    case GST_DISCOVERER_TIMEOUT:         return u"The discovery timed-out"_s;
+    case GST_DISCOVERER_BUSY:            return u"The discoverer was already discovering a file"_s;
+    case GST_DISCOVERER_MISSING_PLUGINS: return u"Some plugins are missing for full discovery"_s;
     case GST_DISCOVERER_ERROR:
-    default:                             return QStringLiteral("An error happened and the GError is set");
+    default:                             return u"An error happened and the GError is set"_s;
   }
 
 }

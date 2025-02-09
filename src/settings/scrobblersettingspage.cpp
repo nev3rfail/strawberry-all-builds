@@ -31,7 +31,6 @@
 
 #include "settingsdialog.h"
 #include "settingspage.h"
-#include "core/application.h"
 #include "core/iconloader.h"
 #include "core/song.h"
 #include "core/settings.h"
@@ -41,22 +40,24 @@
 #include "scrobbler/lastfmscrobbler.h"
 #include "scrobbler/librefmscrobbler.h"
 #include "scrobbler/listenbrainzscrobbler.h"
+#include "constants/scrobblersettings.h"
 
-const char *ScrobblerSettingsPage::kSettingsGroup = "Scrobbler";
+using namespace Qt::Literals::StringLiterals;
+using namespace ScrobblerSettings;
 
-ScrobblerSettingsPage::ScrobblerSettingsPage(SettingsDialog *dialog, QWidget *parent)
+ScrobblerSettingsPage::ScrobblerSettingsPage(SettingsDialog *dialog, const SharedPtr<AudioScrobbler> scrobbler, QWidget *parent)
     : SettingsPage(dialog, parent),
-      scrobbler_(dialog->app()->scrobbler()),
-      lastfmscrobbler_(dialog->app()->scrobbler()->Service<LastFMScrobbler>()),
-      librefmscrobbler_(dialog->app()->scrobbler()->Service<LibreFMScrobbler>()),
-      listenbrainzscrobbler_(dialog->app()->scrobbler()->Service<ListenBrainzScrobbler>()),
       ui_(new Ui_ScrobblerSettingsPage),
+      scrobbler_(scrobbler),
+      lastfmscrobbler_(scrobbler_->Service<LastFMScrobbler>()),
+      librefmscrobbler_(scrobbler_->Service<LibreFMScrobbler>()),
+      listenbrainzscrobbler_(scrobbler_->Service<ListenBrainzScrobbler>()),
       lastfm_waiting_for_auth_(false),
       librefm_waiting_for_auth_(false),
       listenbrainz_waiting_for_auth_(false) {
 
   ui_->setupUi(this);
-  setWindowIcon(IconLoader::Load(QStringLiteral("scrobble"), true, 0, 32));
+  setWindowIcon(IconLoader::Load(u"scrobble"_s, true, 0, 32));
 
   // Last.fm
   QObject::connect(&*lastfmscrobbler_, &LastFMScrobbler::AuthenticationComplete, this, &ScrobblerSettingsPage::LastFM_AuthenticationComplete);
@@ -79,7 +80,7 @@ ScrobblerSettingsPage::ScrobblerSettingsPage(SettingsDialog *dialog, QWidget *pa
   QObject::connect(ui_->widget_listenbrainz_login_state, &LoginStateWidget::LogoutClicked, this, &ScrobblerSettingsPage::ListenBrainz_Logout);
   ui_->widget_listenbrainz_login_state->AddCredentialGroup(ui_->widget_listenbrainz_login);
 
-  ui_->label_listenbrainz_token->setText(QStringLiteral("<html><head/><body><p>") + tr("Enter your user token from") + QLatin1Char(' ') + QStringLiteral("<a href=\"https://listenbrainz.org/profile/\"><span style=\"text-decoration: underline; color:#0000ff;\">https://listenbrainz.org/profile/</span></a></p></body></html>"));
+  ui_->label_listenbrainz_token->setText(u"<html><head/><body><p>"_s + tr("Enter your user token from") + QLatin1Char(' ') + u"<a href=\"https://listenbrainz.org/profile/\"><span style=\"text-decoration: underline; color:#0000ff;\">https://listenbrainz.org/profile/</span></a></p></body></html>"_s);
 
   resize(sizeHint());
 
@@ -108,6 +109,7 @@ void ScrobblerSettingsPage::Load() {
   ui_->checkbox_source_subsonic->setChecked(scrobbler_->sources().contains(Song::Source::Subsonic));
   ui_->checkbox_source_tidal->setChecked(scrobbler_->sources().contains(Song::Source::Tidal));
   ui_->checkbox_source_qobuz->setChecked(scrobbler_->sources().contains(Song::Source::Qobuz));
+  ui_->checkbox_source_spotify->setChecked(scrobbler_->sources().contains(Song::Source::Spotify));
   ui_->checkbox_source_stream->setChecked(scrobbler_->sources().contains(Song::Source::Stream));
   ui_->checkbox_source_somafm->setChecked(scrobbler_->sources().contains(Song::Source::SomaFM));
   ui_->checkbox_source_radioparadise->setChecked(scrobbler_->sources().contains(Song::Source::RadioParadise));
@@ -134,14 +136,14 @@ void ScrobblerSettingsPage::Save() {
   Settings s;
 
   s.beginGroup(kSettingsGroup);
-  s.setValue("enabled", ui_->checkbox_enable->isChecked());
-  s.setValue("scrobble_button", ui_->checkbox_scrobble_button->isChecked());
-  s.setValue("love_button", ui_->checkbox_love_button->isChecked());
-  s.setValue("offline", ui_->checkbox_offline->isChecked());
-  s.setValue("submit", ui_->spinbox_submit->value());
-  s.setValue("albumartist", ui_->checkbox_albumartist->isChecked());
-  s.setValue("show_error_dialog", ui_->checkbox_show_error_dialog->isChecked());
-  s.setValue("strip_remastered", ui_->checkbox_strip_remastered->isChecked());
+  s.setValue(kEnabled, ui_->checkbox_enable->isChecked());
+  s.setValue(kScrobbleButton, ui_->checkbox_scrobble_button->isChecked());
+  s.setValue(kLoveButton, ui_->checkbox_love_button->isChecked());
+  s.setValue(kOffline, ui_->checkbox_offline->isChecked());
+  s.setValue(kSubmit, ui_->spinbox_submit->value());
+  s.setValue(kAlbumArtist, ui_->checkbox_albumartist->isChecked());
+  s.setValue(kShowErrorDialog, ui_->checkbox_show_error_dialog->isChecked());
+  s.setValue(kStripRemastered, ui_->checkbox_strip_remastered->isChecked());
 
   QStringList sources;
   if (ui_->checkbox_source_collection->isChecked()) sources << Song::TextForSource(Song::Source::Collection);
@@ -151,26 +153,27 @@ void ScrobblerSettingsPage::Save() {
   if (ui_->checkbox_source_subsonic->isChecked()) sources << Song::TextForSource(Song::Source::Subsonic);
   if (ui_->checkbox_source_tidal->isChecked()) sources << Song::TextForSource(Song::Source::Tidal);
   if (ui_->checkbox_source_qobuz->isChecked()) sources << Song::TextForSource(Song::Source::Qobuz);
+  if (ui_->checkbox_source_spotify->isChecked()) sources << Song::TextForSource(Song::Source::Spotify);
   if (ui_->checkbox_source_stream->isChecked()) sources << Song::TextForSource(Song::Source::Stream);
   if (ui_->checkbox_source_somafm->isChecked()) sources << Song::TextForSource(Song::Source::SomaFM);
   if (ui_->checkbox_source_radioparadise->isChecked()) sources << Song::TextForSource(Song::Source::RadioParadise);
   if (ui_->checkbox_source_unknown->isChecked()) sources << Song::TextForSource(Song::Source::Unknown);
 
-  s.setValue("sources", sources);
+  s.setValue(kSources, sources);
 
   s.endGroup();
 
   s.beginGroup(LastFMScrobbler::kSettingsGroup);
-  s.setValue("enabled", ui_->checkbox_lastfm_enable->isChecked());
+  s.setValue(kEnabled, ui_->checkbox_lastfm_enable->isChecked());
   s.endGroup();
 
   s.beginGroup(LibreFMScrobbler::kSettingsGroup);
-  s.setValue("enabled", ui_->checkbox_librefm_enable->isChecked());
+  s.setValue(kEnabled, ui_->checkbox_librefm_enable->isChecked());
   s.endGroup();
 
   s.beginGroup(ListenBrainzScrobbler::kSettingsGroup);
-  s.setValue("enabled", ui_->checkbox_listenbrainz_enable->isChecked());
-  s.setValue("user_token", ui_->lineedit_listenbrainz_user_token->text());
+  s.setValue(kEnabled, ui_->checkbox_listenbrainz_enable->isChecked());
+  s.setValue(kUserToken, ui_->lineedit_listenbrainz_user_token->text());
   s.endGroup();
 
   scrobbler_->ReloadSettings();
@@ -201,7 +204,7 @@ void ScrobblerSettingsPage::LastFM_AuthenticationComplete(const bool success, co
     Save();
   }
   else {
-    if (!error.isEmpty()) QMessageBox::warning(this, QStringLiteral("Authentication failed"), error);
+    if (!error.isEmpty()) QMessageBox::warning(this, u"Authentication failed"_s, error);
   }
 
   LastFM_RefreshControls(success);
@@ -236,7 +239,7 @@ void ScrobblerSettingsPage::LibreFM_AuthenticationComplete(const bool success, c
     Save();
   }
   else {
-    QMessageBox::warning(this, QStringLiteral("Authentication failed"), error);
+    QMessageBox::warning(this, u"Authentication failed"_s, error);
   }
 
   LibreFM_RefreshControls(success);
@@ -271,7 +274,7 @@ void ScrobblerSettingsPage::ListenBrainz_AuthenticationComplete(const bool succe
     Save();
   }
   else {
-    QMessageBox::warning(this, QStringLiteral("Authentication failed"), error);
+    QMessageBox::warning(this, u"Authentication failed"_s, error);
   }
 
   ListenBrainz_RefreshControls(success);

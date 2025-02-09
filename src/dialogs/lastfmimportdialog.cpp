@@ -27,9 +27,11 @@
 #include "lastfmimportdialog.h"
 #include "ui_lastfmimportdialog.h"
 
-#include "core/shared_ptr.h"
+#include "includes/shared_ptr.h"
 #include "core/iconloader.h"
 #include "scrobbler/lastfmimport.h"
+
+using namespace Qt::Literals::StringLiterals;
 
 LastFMImportDialog::LastFMImportDialog(SharedPtr<LastFMImport> lastfm_import, QWidget *parent)
     : QDialog(parent),
@@ -41,7 +43,7 @@ LastFMImportDialog::LastFMImportDialog(SharedPtr<LastFMImport> lastfm_import, QW
 
   ui_->setupUi(this);
 
-  setWindowIcon(IconLoader::Load(QStringLiteral("scrobble")));
+  setWindowIcon(IconLoader::Load(u"scrobble"_s));
 
   ui_->stackedWidget->setCurrentWidget(ui_->page_start);
 

@@ -26,9 +26,12 @@
 #include <QString>
 
 #include "translations.h"
-#include "core/potranslator.h"
+#include "core/logging.h"
 
-Translations::Translations(QObject *parent) : QObject(parent) {}
+using namespace Qt::Literals::StringLiterals;
+
+Translations::Translations() = default;
+
 Translations::~Translations() {
 
   for (QTranslator *t : std::as_const(translations_)) {
@@ -40,8 +43,10 @@ Translations::~Translations() {
 
 void Translations::LoadTranslation(const QString &prefix, const QString &path, const QString &language) {
 
-  QTranslator *t = new PoTranslator;
-  if (t->load(prefix + QLatin1Char('_') + language, path)) {
+  const QString basefilename = prefix + u'_' + language;
+  QTranslator *t = new QTranslator;
+  if (t->load(basefilename, path)) {
+    qLog(Debug) << "Tranlations loaded from" << basefilename;
     QCoreApplication::installTranslator(t);
     translations_ << t;
   }

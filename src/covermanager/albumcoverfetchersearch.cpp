@@ -36,8 +36,8 @@
 #include <QNetworkRequest>
 #include <QNetworkReply>
 
+#include "includes/shared_ptr.h"
 #include "core/logging.h"
-#include "core/shared_ptr.h"
 #include "core/networkaccessmanager.h"
 #include "core/networktimeouts.h"
 #include "utilities/imageutils.h"
@@ -48,7 +48,7 @@
 #include "coverproviders.h"
 #include "albumcoverimageresult.h"
 
-using namespace Qt::StringLiterals;
+using namespace Qt::Literals::StringLiterals;
 
 namespace {
 constexpr int kSearchTimeoutMs = 20000;

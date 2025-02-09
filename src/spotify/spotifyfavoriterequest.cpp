@@ -35,6 +35,7 @@
 #include <QJsonDocument>
 #include <QJsonArray>
 
+#include "includes/shared_ptr.h"
 #include "core/logging.h"
 #include "core/networkaccessmanager.h"
 #include "core/song.h"
@@ -42,7 +43,9 @@
 #include "spotifybaserequest.h"
 #include "spotifyfavoriterequest.h"
 
-SpotifyFavoriteRequest::SpotifyFavoriteRequest(SpotifyService *service, NetworkAccessManager *network, QObject *parent)
+using namespace Qt::Literals::StringLiterals;
+
+SpotifyFavoriteRequest::SpotifyFavoriteRequest(SpotifyService *service, const SharedPtr<NetworkAccessManager> network, QObject *parent)
     : SpotifyBaseRequest(service, network, parent),
       service_(service),
       network_(network) {}
@@ -62,11 +65,11 @@ QString SpotifyFavoriteRequest::FavoriteText(const FavoriteType type) {
 
   switch (type) {
     case FavoriteType_Artists:
-      return QStringLiteral("artists");
+      return u"artists"_s;
     case FavoriteType_Albums:
-      return QStringLiteral("albums");
+      return u"albums"_s;
     case FavoriteType_Songs:
-      return QStringLiteral("tracks");
+      return u"tracks"_s;
   }
 
   return QString();
@@ -127,16 +130,16 @@ void SpotifyFavoriteRequest::AddFavorites(const FavoriteType type, const SongLis
 
 void SpotifyFavoriteRequest::AddFavoritesRequest(const FavoriteType type, const QString &ids_list, const QByteArray &json_data, const SongList &songs) {
 
-  QUrl url(QLatin1String(SpotifyService::kApiUrl) + (type == FavoriteType_Artists ? QStringLiteral("/me/following") : QStringLiteral("/me/") + FavoriteText(type)));
+  QUrl url(QLatin1String(SpotifyService::kApiUrl) + (type == FavoriteType_Artists ? u"/me/following"_s : u"/me/"_s + FavoriteText(type)));
   if (type == FavoriteType_Artists) {
     QUrlQuery url_query;
-    url_query.addQueryItem(QStringLiteral("type"), QStringLiteral("artist"));
-    url_query.addQueryItem(QStringLiteral("ids"), ids_list);
+    url_query.addQueryItem(u"type"_s, u"artist"_s);
+    url_query.addQueryItem(u"ids"_s, ids_list);
     url.setQuery(url_query);
   }
   QNetworkRequest req(url);
   req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
-  req.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/x-www-form-urlencoded"));
+  req.setHeader(QNetworkRequest::ContentTypeHeader, u"application/x-www-form-urlencoded"_s);
   if (!access_token().isEmpty()) req.setRawHeader("authorization", "Bearer " + access_token().toUtf8());
   QNetworkReply *reply = nullptr;
   if (type == FavoriteType_Artists) {
@@ -241,16 +244,16 @@ void SpotifyFavoriteRequest::RemoveFavoritesRequest(const FavoriteType type, con
 
   Q_UNUSED(json_data)
 
-  QUrl url(QLatin1String(SpotifyService::kApiUrl) + (type == FavoriteType_Artists ? QStringLiteral("/me/following") : QStringLiteral("/me/") + FavoriteText(type)));
+  QUrl url(QLatin1String(SpotifyService::kApiUrl) + (type == FavoriteType_Artists ? u"/me/following"_s : u"/me/"_s + FavoriteText(type)));
   if (type == FavoriteType_Artists) {
     QUrlQuery url_query;
-    url_query.addQueryItem(QStringLiteral("type"), QStringLiteral("artist"));
-    url_query.addQueryItem(QStringLiteral("ids"), ids_list);
+    url_query.addQueryItem(u"type"_s, u"artist"_s);
+    url_query.addQueryItem(u"ids"_s, ids_list);
     url.setQuery(url_query);
   }
   QNetworkRequest req(url);
   req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
-  req.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/x-www-form-urlencoded"));
+  req.setHeader(QNetworkRequest::ContentTypeHeader, u"application/x-www-form-urlencoded"_s);
   if (!access_token().isEmpty()) req.setRawHeader("authorization", "Bearer " + access_token().toUtf8());
   QNetworkReply *reply = nullptr;
   if (type == FavoriteType_Artists) {

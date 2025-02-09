@@ -24,9 +24,15 @@
 #include <memory>
 
 #include <cstddef>
+
 #include <glib.h>
 #include <glib/gtypes.h>
 #include <glib-object.h>
+
+#include <cdio/cdio.h>
+
+#include <gst/gst.h>
+#include <gst/tag/tag.h>
 
 #include <QtGlobal>
 #include <QObject>
@@ -35,17 +41,15 @@
 #include <QString>
 #include <QUrl>
 
-#include <cdio/cdio.h>
-#include <gst/gst.h>
-#include <gst/tag/tag.h>
-
 #include "cddasongloader.h"
+#include "includes/shared_ptr.h"
 #include "core/logging.h"
-#include "core/shared_ptr.h"
 #include "core/networkaccessmanager.h"
-#include "utilities/timeconstants.h"
+#include "constants/timeconstants.h"
 
 using std::make_shared;
+
+using namespace Qt::Literals::StringLiterals;
 
 CddaSongLoader::CddaSongLoader(const QUrl &url, QObject *parent)
     : QObject(parent),
@@ -73,7 +77,7 @@ void CddaSongLoader::LoadSongs() {
   QMutexLocker locker(&mutex_load_);
   cdio_ = cdio_open(url_.path().toLocal8Bit().constData(), DRIVER_DEVICE);
   if (cdio_ == nullptr) {
-    Error(QStringLiteral("Unable to open CDIO device."));
+    Error(u"Unable to open CDIO device."_s);
     return;
   }
 

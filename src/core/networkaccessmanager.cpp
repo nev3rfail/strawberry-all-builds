@@ -22,7 +22,6 @@
 #include "config.h"
 
 #include <QtGlobal>
-#include <QObject>
 #include <QCoreApplication>
 #include <QIODevice>
 #include <QByteArray>
@@ -33,6 +32,8 @@
 
 #include "networkaccessmanager.h"
 #include "threadsafenetworkdiskcache.h"
+
+using namespace Qt::Literals::StringLiterals;
 
 NetworkAccessManager::NetworkAccessManager(QObject *parent)
     : QNetworkAccessManager(parent) {
@@ -57,7 +58,7 @@ QNetworkReply *NetworkAccessManager::createRequest(Operation op, const QNetworkR
   new_request.setHeader(QNetworkRequest::UserAgentHeader, user_agent);
 
   if (op == QNetworkAccessManager::PostOperation && !new_request.header(QNetworkRequest::ContentTypeHeader).isValid()) {
-    new_request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/x-www-form-urlencoded"));
+    new_request.setHeader(QNetworkRequest::ContentTypeHeader, u"application/x-www-form-urlencoded"_s);
   }
 
   // Prefer the cache unless the caller has changed the setting already

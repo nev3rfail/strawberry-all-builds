@@ -2,7 +2,7 @@
  *   Copyright (C) 2003-2005 by Mark Kretschmann <markey@web.de>           *
  *   Copyright (C) 2005 by Jakub Stachowski <qbast@go2.pl>                 *
  *   Copyright (C) 2006 Paul Cifarelli <paul@cifarelli.net>                *
- *   Copyright (C) 2017-2021 Jonas Kvinge <jonas@jkvinge.net>              *
+ *   Copyright (C) 2017-2024 Jonas Kvinge <jonas@jkvinge.net>              *
  *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *
  *   it under the terms of the GNU General Public License as published by  *
@@ -39,9 +39,8 @@
 #include <QString>
 #include <QUrl>
 
-#include "core/shared_ptr.h"
+#include "includes/shared_ptr.h"
 #include "enginebase.h"
-#include "gststartup.h"
 #include "gstenginepipeline.h"
 #include "gstbufferconsumer.h"
 
@@ -59,11 +58,10 @@ class GstEngine : public EngineBase, public GstBufferConsumer {
   static const char *kAutoSink;
   static const char *kALSASink;
 
-  Type type() const override { return Type::GStreamer; }
   bool Init() override;
   State state() const override;
-  void StartPreloading(const QUrl &media_url, const QUrl &stream_url, const bool force_stop_at_end, const qint64 beginning_nanosec, const qint64 end_nanosec) override;
-  bool Load(const QUrl &media_url, const QUrl &stream_url, const EngineBase::TrackChangeFlags change, const bool force_stop_at_end, const quint64 beginning_nanosec, const qint64 end_nanosec, const std::optional<double> ebur128_integrated_loudness_lufs) override;
+  void StartPreloading(const QUrl &media_url, const QUrl &stream_url, const bool force_stop_at_end, const qint64 beginning_offset_nanosec, const qint64 end_offset_nanosec) override;
+  bool Load(const QUrl &media_url, const QUrl &stream_url, const EngineBase::TrackChangeFlags change, const bool force_stop_at_end, const quint64 beginning_offset_nanosec, const qint64 end_offset_nanosec, const std::optional<double> ebur128_integrated_loudness_lufs) override;
   bool Play(const bool pause, const quint64 offset_nanosec) override;
   void Stop(const bool stop_after = false) override;
   void Pause() override;
@@ -84,9 +82,6 @@ class GstEngine : public EngineBase, public GstBufferConsumer {
   bool CustomDeviceSupport(const QString &output) const override;
   bool ALSADeviceSupport(const QString &output) const override;
   bool ExclusiveModeSupport(const QString &output) const override;
-
-  void SetStartup(GstStartup *gst_startup) { gst_startup_ = gst_startup; }
-  void EnsureInitialized() { gst_startup_->EnsureInitialized(); }
 
   void ConsumeBuffer(GstBuffer *buffer, const int pipeline_id, const QString &format) override;
 
@@ -138,14 +133,14 @@ class GstEngine : public EngineBase, public GstBufferConsumer {
   void StopTimers();
 
   GstEnginePipelinePtr CreatePipeline();
-  GstEnginePipelinePtr CreatePipeline(const QUrl &media_url, const QUrl &stream_url, const QByteArray &gst_url, const qint64 end_nanosec, const double ebur128_loudness_normalizing_gain_db);
+  GstEnginePipelinePtr CreatePipeline(const QUrl &media_url, const QUrl &stream_url, const QByteArray &gst_url, const qint64 beginning_offset_nanosec, const qint64 end_offset_nanosec, const double ebur128_loudness_normalizing_gain_db);
 
   void FinishPipeline(GstEnginePipelinePtr pipeline);
 
   void UpdateScope(int chunk_length);
 
-  static void StreamDiscovered(GstDiscoverer*, GstDiscovererInfo *info, GError*, gpointer self);
-  static void StreamDiscoveryFinished(GstDiscoverer*, gpointer);
+  static void StreamDiscovered(GstDiscoverer *discoverer, GstDiscovererInfo *info, GError *error, gpointer self);
+  static void StreamDiscoveryFinished(GstDiscoverer *discoverer, gpointer self);
   static QString GSTdiscovererErrorMessage(GstDiscovererResult result);
 
   bool OldExclusivePipelineActive() const;
@@ -153,7 +148,6 @@ class GstEngine : public EngineBase, public GstBufferConsumer {
 
  private:
   SharedPtr<TaskManager> task_manager_;
-  GstStartup *gst_startup_;
   GstDiscoverer *discoverer_;
 
   int buffering_task_id_;

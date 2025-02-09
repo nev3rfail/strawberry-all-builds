@@ -30,22 +30,22 @@
 #include <QString>
 #include <QSize>
 
-#include "core/mimedata.h"
 #include "core/iconloader.h"
+#include "core/mimedata.h"
 #include "streamsongmimedata.h"
 #include "streamingservice.h"
 #include "streamingsearchmodel.h"
 #include "streamingsearchview.h"
 
-using namespace Qt::StringLiterals;
+using namespace Qt::Literals::StringLiterals;
 
 StreamingSearchModel::StreamingSearchModel(StreamingServicePtr service, QObject *parent)
     : QStandardItemModel(parent),
       service_(service),
       proxy_(nullptr),
       use_pretty_covers_(true),
-      artist_icon_(IconLoader::Load(QStringLiteral("folder-sound"))),
-      album_icon_(IconLoader::Load(QStringLiteral("cdcase"))) {
+      artist_icon_(IconLoader::Load(u"folder-sound"_s)),
+      album_icon_(IconLoader::Load(u"cdcase"_s)) {
 
   group_by_[0] = CollectionModel::GroupBy::AlbumArtist;
   group_by_[1] = CollectionModel::GroupBy::AlbumDisc;

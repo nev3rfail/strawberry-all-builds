@@ -31,114 +31,29 @@
 #include <QString>
 #include <QUrl>
 
-#include "shared_ptr.h"
-#include "urlhandler.h"
+#include "includes/shared_ptr.h"
+#include "core/urlhandler.h"
+#include "core/enginemetadata.h"
 #include "engine/enginebase.h"
-#include "engine/enginemetadata.h"
 #include "playlist/playlist.h"
 #include "playlist/playlistitem.h"
-#include "settings/behavioursettingspage.h"
+#include "constants/behavioursettings.h"
+#include "playerinterface.h"
 
 class QTimer;
-class Application;
 class Song;
+class TaskManager;
+class UrlHandlers;
+class PlaylistManager;
 class AnalyzerContainer;
 class Equalizer;
-#ifdef HAVE_GSTREAMER
-class GstStartup;
-#endif
-
-class PlayerInterface : public QObject {
-  Q_OBJECT
-
- public:
-  explicit PlayerInterface(QObject *parent = nullptr) : QObject(parent) {}
-
-  virtual SharedPtr<EngineBase> engine() const = 0;
-  virtual EngineBase::State GetState() const = 0;
-  virtual uint GetVolume() const = 0;
-
-  virtual PlaylistItemPtr GetCurrentItem() const = 0;
-  virtual PlaylistItemPtr GetItemAt(const int pos) const = 0;
-
-  virtual void RegisterUrlHandler(UrlHandler *handler) = 0;
-  virtual void UnregisterUrlHandler(UrlHandler *handler) = 0;
-
- public Q_SLOTS:
-  virtual void ReloadSettings() = 0;
-  virtual void LoadVolume() = 0;
-  virtual void SaveVolume() = 0;
-  virtual void SavePlaybackStatus() = 0;
-
-  virtual void PlaylistsLoaded() = 0;
-
-  // Manual track change to the specified track
-  virtual void PlayAt(const int index, const bool pause, const quint64 offset_nanosec, EngineBase::TrackChangeFlags change, const Playlist::AutoScroll autoscroll, const bool reshuffle, const bool force_inform = false) = 0;
-
-  // If there's currently a song playing, pause it, otherwise play the track that was playing last, or the first one on the playlist
-  virtual void PlayPause(const quint64 offset_nanosec = 0, const Playlist::AutoScroll autoscroll = Playlist::AutoScroll::Always) = 0;
-  virtual void PlayPauseHelper() = 0;
-  virtual void RestartOrPrevious() = 0;
-
-  // Skips this track.  Might load more of the current radio station.
-  virtual void Next() = 0;
-  virtual void Previous() = 0;
-  virtual void PlayPlaylist(const QString &playlist_name) = 0;
-  virtual void SetVolumeFromEngine(const uint volume) = 0;
-  virtual void SetVolumeFromSlider(const int value) = 0;
-  virtual void SetVolume(const uint volume) = 0;
-  virtual void VolumeUp() = 0;
-  virtual void VolumeDown() = 0;
-  virtual void SeekTo(const quint64 seconds) = 0;
-  // Moves the position of the currently playing song five seconds forward.
-  virtual void SeekForward() = 0;
-  // Moves the position of the currently playing song five seconds backwards.
-  virtual void SeekBackward() = 0;
-
-  virtual void CurrentMetadataChanged(const Song &metadata) = 0;
-
-  virtual void Mute() = 0;
-  virtual void Pause() = 0;
-  virtual void Stop(const bool stop_after = false) = 0;
-  virtual void Play(const quint64 offset_nanosec = 0) = 0;
-  virtual void PlayWithPause(const quint64 offset_nanosec) = 0;
-  virtual void PlayHelper() = 0;
-  virtual void ShowOSD() = 0;
-
- Q_SIGNALS:
-  void Playing();
-  void Paused();
-  // Emitted only when playback is manually resumed
-  void Resumed();
-  void Stopped();
-  void Error(const QString &message = QString());
-  void PlaylistFinished();
-  void VolumeEnabled(const bool volume_enabled);
-  void VolumeChanged(const uint volume);
-  void TrackSkipped(PlaylistItemPtr old_track);
-  // Emitted when there's a manual change to the current's track position.
-  void Seeked(const qint64 microseconds);
-
-  // Emitted when Player has processed a request to play another song.
-  // This contains the URL of the song and a flag saying whether it was able to play the song.
-  void SongChangeRequestProcessed(const QUrl &url, const bool valid);
-
-  // The toggle parameter is true when user requests to toggle visibility for Pretty OSD
-  void ForceShowOSD(const Song &song, const bool toggle);
-
-  void Authenticated();
-
-};
 
 class Player : public PlayerInterface {
   Q_OBJECT
 
  public:
-  explicit Player(Application *app, QObject *parent = nullptr);
+  explicit Player(const SharedPtr<TaskManager> task_manager, const SharedPtr<UrlHandlers> url_handlers, const SharedPtr<PlaylistManager> playlist_manager, QObject *parent = nullptr);
 
-  static const char *kSettingsGroup;
-
-  EngineBase::Type CreateEngine(EngineBase::Type Type);
   void Init();
 
   SharedPtr<EngineBase> engine() const override { return engine_; }
@@ -148,11 +63,6 @@ class Player : public PlayerInterface {
   PlaylistItemPtr GetCurrentItem() const override { return current_item_; }
   PlaylistItemPtr GetItemAt(const int pos) const override;
 
-  void RegisterUrlHandler(UrlHandler *handler) override;
-  void UnregisterUrlHandler(UrlHandler *handler) override;
-
-  const UrlHandler *HandlerForUrl(const QUrl &url) const;
-
   bool PreviousWouldRestartTrack() const;
 
   void SetAnalyzer(AnalyzerContainer *analyzer) { analyzer_ = analyzer; }
@@ -160,6 +70,7 @@ class Player : public PlayerInterface {
 
  public Q_SLOTS:
   void ReloadSettings() override;
+
   void LoadVolume() override;
   void SaveVolume() override;
   void SavePlaybackStatus() override;
@@ -195,10 +106,9 @@ class Player : public PlayerInterface {
 
   void HandleAuthentication();
 
- Q_SIGNALS:
-  void EngineChanged(const EngineBase::Type Type);
-
  private Q_SLOTS:
+  void UrlHandlerRegistered(UrlHandler *url_handler) const;
+
   void EngineStateChanged(const EngineBase::State);
   void EngineMetadataReceived(const EngineMetadata &engine_metadata);
   void TrackAboutToEnd();
@@ -214,7 +124,6 @@ class Player : public PlayerInterface {
   void ValidSongRequested(const QUrl&);
   void InvalidSongRequested(const QUrl&);
 
-  void UrlHandlerDestroyed(QObject *object);
   void HandleLoadResult(const UrlHandler::LoadResult &result);
 
  private:
@@ -226,11 +135,10 @@ class Player : public PlayerInterface {
   void UnPause();
 
  private:
-  Application *app_;
+  const SharedPtr<TaskManager> task_manager_;
+  const SharedPtr<UrlHandlers> url_handlers_;
+  const SharedPtr<PlaylistManager> playlist_manager_;
   SharedPtr<EngineBase> engine_;
-#ifdef HAVE_GSTREAMER
-  GstStartup *gst_startup_;
-#endif
   AnalyzerContainer *analyzer_;
   SharedPtr<Equalizer> equalizer_;
   QTimer *timer_save_volume_;
@@ -246,8 +154,6 @@ class Player : public PlayerInterface {
   EngineBase::State last_state_;
   int nb_errors_received_;
 
-  QMap<QString, UrlHandler*> url_handlers_;
-
   QList<QUrl> loading_async_;
   uint volume_;
   uint volume_before_mute_;
@@ -255,13 +161,12 @@ class Player : public PlayerInterface {
 
   bool continue_on_error_;
   bool greyout_;
-  BehaviourSettingsPage::PreviousBehaviour menu_previousmode_;
+  BehaviourSettings::PreviousBehaviour menu_previousmode_;
   int seek_step_sec_;
   uint volume_increment_;
 
   QDateTime pause_time_;
   quint64 play_offset_nanosec_;
-
 };
 
 #endif  // PLAYER_H

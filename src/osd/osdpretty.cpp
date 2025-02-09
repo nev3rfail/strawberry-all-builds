@@ -51,43 +51,41 @@
 #include <QFlags>
 #include <QtEvents>
 
-#ifdef HAVE_QPA_QPLATFORMNATIVEINTERFACE_H
+#ifdef HAVE_QPA_QPLATFORMNATIVEINTERFACE
 #  include <qpa/qplatformnativeinterface.h>
 #endif
 
 #include "core/settings.h"
+#include "constants/notificationssettings.h"
 
 #include "osdpretty.h"
 #include "ui_osdpretty.h"
 
-using namespace Qt::StringLiterals;
-
-#ifdef Q_OS_WIN
+#ifdef Q_OS_WIN32
 #  include <windows.h>
 #endif
 
-#ifdef Q_OS_WIN
+#ifdef Q_OS_WIN32
 #  include "utilities/winutils.h"
 #endif
 
 using namespace std::chrono_literals;
+using namespace Qt::Literals::StringLiterals;
 
-const char *OSDPretty::kSettingsGroup = "OSDPretty";
+namespace {
 
-const int OSDPretty::kDropShadowSize = 13;
-const int OSDPretty::kBorderRadius = 10;
-const int OSDPretty::kMaxIconSize = 100;
+constexpr int kDropShadowSize = 13;
+constexpr int kBorderRadius = 10;
+constexpr int kMaxIconSize = 100;
+constexpr int kSnapProximity = 20;
 
-const int OSDPretty::kSnapProximity = 20;
+}  // namespace
 
-const QRgb OSDPretty::kPresetBlue = qRgb(102, 150, 227);
-const QRgb OSDPretty::kPresetRed = qRgb(202, 22, 16);
-
-OSDPretty::OSDPretty(Mode mode, QWidget *parent)
+OSDPretty::OSDPretty(const Mode mode, QWidget *parent)
     : QWidget(parent),
       ui_(new Ui_OSDPretty),
       mode_(mode),
-      background_color_(kPresetBlue),
+      background_color_(OSDPrettySettings::kPresetBlue),
       background_opacity_(0.85),
       popup_screen_(nullptr),
       disable_duration_(false),
@@ -96,15 +94,16 @@ OSDPretty::OSDPretty(Mode mode, QWidget *parent)
       fader_(new QTimeLine(300, this)),
       toggle_mode_(false) {
 
-  Qt::WindowFlags flags = Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint | Qt::X11BypassWindowManagerHint;
+  setWindowTitle(u"OSDPretty"_s);
+  setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint | Qt::X11BypassWindowManagerHint);
 
-  setWindowFlags(flags);
   setAttribute(Qt::WA_TranslucentBackground, true);
   setAttribute(Qt::WA_X11NetWmWindowTypeNotification, true);
   setAttribute(Qt::WA_ShowWithoutActivating, true);
+
   ui_->setupUi(this);
 
-#ifdef Q_OS_WIN
+#ifdef Q_OS_WIN32
   // Don't show the window in the taskbar.  Qt::ToolTip does this too, but it adds an extra ugly shadow.
   int ex_style = GetWindowLong(reinterpret_cast<HWND>(winId()), GWL_EXSTYLE);
   ex_style |= WS_EX_NOACTIVATE;
@@ -134,14 +133,14 @@ OSDPretty::OSDPretty(Mode mode, QWidget *parent)
   QObject::connect(fader_, &QTimeLine::finished, this, &OSDPretty::FaderFinished);
 
   // Load the show edges and corners
-  QImage shadow_edge(QStringLiteral(":/pictures/osd_shadow_edge.png"));
-  QImage shadow_corner(QStringLiteral(":/pictures/osd_shadow_corner.png"));
+  QImage shadow_edge(u":/pictures/osd_shadow_edge.png"_s);
+  QImage shadow_corner(u":/pictures/osd_shadow_corner.png"_s);
   for (int i = 0; i < 4; ++i) {
     QTransform rotation = QTransform().rotate(90 * i);
     shadow_edge_[i] = QPixmap::fromImage(shadow_edge.transformed(rotation));
     shadow_corner_[i] = QPixmap::fromImage(shadow_corner.transformed(rotation));
   }
-  background_ = QPixmap(QStringLiteral(":/pictures/osd_background.png"));
+  background_ = QPixmap(u":/pictures/osd_background.png"_s);
 
   // Set the margins to allow for the drop shadow
   QBoxLayout *l = qobject_cast<QBoxLayout*>(layout());
@@ -216,8 +215,8 @@ void OSDPretty::ScreenRemoved(QScreen *screen) {
 
 bool OSDPretty::IsTransparencyAvailable() {
 
-#ifdef HAVE_QPA_QPLATFORMNATIVEINTERFACE_H
-  if (qApp) {
+#ifdef HAVE_QPA_QPLATFORMNATIVEINTERFACE
+  if (qApp && QGuiApplication::platformName() == "xcb"_L1) {
     QPlatformNativeInterface *native = QGuiApplication::platformNativeInterface();
     QScreen *screen = popup_screen_ == nullptr ? QGuiApplication::primaryScreen() : popup_screen_;
     if (native && screen) {
@@ -233,20 +232,20 @@ bool OSDPretty::IsTransparencyAvailable() {
 void OSDPretty::Load() {
 
   Settings s;
-  s.beginGroup(kSettingsGroup);
-  foreground_color_ = QColor(s.value("foreground_color", 0).toInt());
-  background_color_ = QColor(s.value("background_color", kPresetBlue).toInt());
-  background_opacity_ = s.value("background_opacity", 0.85).toFloat();
-  font_.fromString(s.value("font", QStringLiteral("Verdana,9,-1,5,50,0,0,0,0,0")).toString());
-  disable_duration_ = s.value("disable_duration", false).toBool();
-#ifdef Q_OS_WIN
-  fading_enabled_ = s.value("fading", true).toBool();
+  s.beginGroup(OSDPrettySettings::kSettingsGroup);
+  foreground_color_ = QColor(s.value(OSDPrettySettings::kForegroundColor, 0).toInt());
+  background_color_ = QColor(s.value(OSDPrettySettings::kBackgroundColor, OSDPrettySettings::kPresetBlue).toInt());
+  background_opacity_ = s.value(OSDPrettySettings::kBackgroundOpacity, 0.85).toFloat();
+  font_.fromString(s.value(OSDPrettySettings::kFont, u"Verdana,9,-1,5,50,0,0,0,0,0"_s).toString());
+  disable_duration_ = s.value(OSDPrettySettings::kDisableDuration, false).toBool();
+#ifdef Q_OS_WIN32
+  fading_enabled_ = s.value(OSDPrettySettings::kFading, true).toBool();
 #else
-  fading_enabled_ = s.value("fading", false).toBool();
+  fading_enabled_ = s.value(OSDPrettySettings::kFading, false).toBool();
 #endif
 
-  if (s.contains("popup_screen"_L1)) {
-    popup_screen_name_ = s.value("popup_screen").toString();
+  if (s.contains(OSDPrettySettings::kPopupScreen)) {
+    popup_screen_name_ = s.value(OSDPrettySettings::kPopupScreen).toString();
     if (screens_.contains(popup_screen_name_)) {
       popup_screen_ = screens_.value(popup_screen_name_);
     }
@@ -261,8 +260,8 @@ void OSDPretty::Load() {
     if (current_screen()) popup_screen_name_ = current_screen()->name();
   }
 
-  if (s.contains("popup_pos"_L1)) {
-    popup_pos_ = s.value("popup_pos").toPoint();
+  if (s.contains(OSDPrettySettings::kPopupPos)) {
+    popup_pos_ = s.value(OSDPrettySettings::kPopupPos).toPoint();
   }
   else {
     if (popup_screen_) {
@@ -292,7 +291,9 @@ QRect OSDPretty::BoxBorder() const {
   return rect().adjusted(kDropShadowSize, kDropShadowSize, -kDropShadowSize, -kDropShadowSize);
 }
 
-void OSDPretty::paintEvent(QPaintEvent*) {
+void OSDPretty::paintEvent(QPaintEvent *e) {
+
+  Q_UNUSED(e)
 
   QPainter p(this);
   p.setRenderHint(QPainter::Antialiasing);
@@ -431,7 +432,7 @@ void OSDPretty::Reposition() {
     int x = popup_pos_.x() < 0 ? geometry.right() - width() : geometry.left() + popup_pos_.x();
     int y = popup_pos_.y() < 0 ? geometry.bottom() - height() : geometry.top() + popup_pos_.y();
 
-#ifndef Q_OS_WIN
+#ifndef Q_OS_WIN32
     x = qBound(0, x, geometry.right() - width());
     y = qBound(0, y, geometry.bottom() - height());
 #endif
@@ -455,13 +456,15 @@ void OSDPretty::Reposition() {
   }
 
   // On windows, enable blurbehind on the masked area
-#ifdef Q_OS_WIN
+#ifdef Q_OS_WIN32
   Utilities::enableBlurBehindWindow(windowHandle(), QRegion(mask));
 #endif
 
 }
 
-void OSDPretty::enterEvent(QEnterEvent*) {
+void OSDPretty::enterEvent(QEnterEvent *e) {
+
+  Q_UNUSED(e)
 
   if (mode_ == Mode::Popup) {
     setWindowOpacity(0.25);
@@ -469,8 +472,12 @@ void OSDPretty::enterEvent(QEnterEvent*) {
 
 }
 
-void OSDPretty::leaveEvent(QEvent*) {
+void OSDPretty::leaveEvent(QEvent *e) {
+
+  Q_UNUSED(e)
+
   setWindowOpacity(1.0);
+
 }
 
 void OSDPretty::mousePressEvent(QMouseEvent *e) {
@@ -514,7 +521,9 @@ void OSDPretty::mouseMoveEvent(QMouseEvent *e) {
 
 }
 
-void OSDPretty::mouseReleaseEvent(QMouseEvent *) {
+void OSDPretty::mouseReleaseEvent(QMouseEvent *e) {
+
+  Q_UNUSED(e)
 
   if (current_screen() && mode_ == Mode::Draggable) {
     popup_screen_ = current_screen();

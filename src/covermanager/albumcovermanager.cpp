@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <utility>
 #include <chrono>
+#include <memory>
 
 #include <QObject>
 #include <QMainWindow>
@@ -61,14 +62,14 @@
 #include <QSize>
 #include <QtEvents>
 
-#include "core/scoped_ptr.h"
-#include "core/shared_ptr.h"
-#include "core/application.h"
+#include "includes/scoped_ptr.h"
+#include "includes/shared_ptr.h"
+#include "core/logging.h"
 #include "core/iconloader.h"
-#include "core/tagreaderclient.h"
-#include "core/database.h"
-#include "core/sqlrow.h"
 #include "core/settings.h"
+#include "core/database.h"
+#include "core/networkaccessmanager.h"
+#include "core/songmimedata.h"
 #include "utilities/strutils.h"
 #include "utilities/fileutils.h"
 #include "utilities/imageutils.h"
@@ -76,10 +77,9 @@
 #include "utilities/screenutils.h"
 #include "widgets/forcescrollperpixel.h"
 #include "widgets/searchfield.h"
+#include "tagreader/tagreaderclient.h"
 #include "collection/collectionbackend.h"
 #include "collection/collectionquery.h"
-#include "playlist/songmimedata.h"
-#include "coverproviders.h"
 #include "albumcovermanager.h"
 #include "albumcoversearcher.h"
 #include "albumcoverchoicecontroller.h"
@@ -88,6 +88,7 @@
 #include "albumcoverfetcher.h"
 #include "albumcoverloader.h"
 #include "albumcoverloaderresult.h"
+#include "coverproviders.h"
 #include "coversearchstatistics.h"
 #include "coversearchstatisticsdialog.h"
 #include "albumcoverimageresult.h"
@@ -95,30 +96,41 @@
 #include "ui_albumcovermanager.h"
 
 using namespace std::literals::chrono_literals;
-using namespace Qt::StringLiterals;
+using namespace Qt::Literals::StringLiterals;
+using std::make_shared;
 
 namespace {
 constexpr char kSettingsGroup[] = "CoverManager";
 constexpr int kThumbnailSize = 120;
 }
 
-AlbumCoverManager::AlbumCoverManager(Application *app, SharedPtr<CollectionBackend> collection_backend, QMainWindow *mainwindow, QWidget *parent)
+AlbumCoverManager::AlbumCoverManager(const SharedPtr<NetworkAccessManager> network,
+                                     const SharedPtr<CollectionBackend> collection_backend,
+                                     const SharedPtr<TagReaderClient> tagreader_client,
+                                     const SharedPtr<AlbumCoverLoader> albumcover_loader,
+                                     const SharedPtr<CurrentAlbumCoverLoader> current_albumcover_loader,
+                                     const SharedPtr<CoverProviders> cover_providers,
+                                     const SharedPtr<StreamingServices> streaming_services,
+                                     QMainWindow *mainwindow, QWidget *parent)
     : QMainWindow(parent),
       ui_(new Ui_CoverManager),
       mainwindow_(mainwindow),
-      app_(app),
+      network_(network),
       collection_backend_(collection_backend),
+      tagreader_client_(tagreader_client),
+      albumcover_loader_(albumcover_loader),
+      cover_providers_(cover_providers),
       album_cover_choice_controller_(new AlbumCoverChoiceController(this)),
       timer_album_cover_load_(new QTimer(this)),
       filter_all_(nullptr),
       filter_with_covers_(nullptr),
       filter_without_covers_(nullptr),
-      cover_fetcher_(new AlbumCoverFetcher(app_->cover_providers(), app_->network(), this)),
+      cover_fetcher_(new AlbumCoverFetcher(cover_providers, network, this)),
       cover_searcher_(nullptr),
       cover_export_(nullptr),
-      cover_exporter_(new AlbumCoverExporter(this)),
-      artist_icon_(IconLoader::Load(QStringLiteral("folder-sound"))),
-      all_artists_icon_(IconLoader::Load(QStringLiteral("library-music"))),
+      cover_exporter_(new AlbumCoverExporter(tagreader_client_, this)),
+      artist_icon_(IconLoader::Load(u"folder-sound"_s)),
+      all_artists_icon_(IconLoader::Load(u"library-music"_s)),
       image_nocover_thumbnail_(ImageUtils::GenerateNoCoverImage(QSize(120, 120), devicePixelRatio())),
       icon_nocover_item_(QPixmap::fromImage(image_nocover_thumbnail_)),
       context_menu_(new QMenu(this)),
@@ -135,16 +147,16 @@ AlbumCoverManager::AlbumCoverManager(Application *app, SharedPtr<CollectionBacke
   QObject::connect(timer_album_cover_load_, &QTimer::timeout, this, &AlbumCoverManager::LoadAlbumCovers);
 
   // Icons
-  ui_->action_fetch->setIcon(IconLoader::Load(QStringLiteral("download")));
-  ui_->export_covers->setIcon(IconLoader::Load(QStringLiteral("document-save")));
-  ui_->view->setIcon(IconLoader::Load(QStringLiteral("view-choose")));
-  ui_->button_fetch->setIcon(IconLoader::Load(QStringLiteral("download")));
-  ui_->action_add_to_playlist->setIcon(IconLoader::Load(QStringLiteral("media-playback-start")));
-  ui_->action_load->setIcon(IconLoader::Load(QStringLiteral("media-playback-start")));
+  ui_->action_fetch->setIcon(IconLoader::Load(u"download"_s));
+  ui_->export_covers->setIcon(IconLoader::Load(u"document-save"_s));
+  ui_->view->setIcon(IconLoader::Load(u"view-choose"_s));
+  ui_->button_fetch->setIcon(IconLoader::Load(u"download"_s));
+  ui_->action_add_to_playlist->setIcon(IconLoader::Load(u"media-playback-start"_s));
+  ui_->action_load->setIcon(IconLoader::Load(u"media-playback-start"_s));
 
-  album_cover_choice_controller_->Init(app_);
+  album_cover_choice_controller_->Init(network, tagreader_client, collection_backend, albumcover_loader, current_albumcover_loader, cover_providers, streaming_services);
 
-  cover_searcher_ = new AlbumCoverSearcher(icon_nocover_item_, app_, this);
+  cover_searcher_ = new AlbumCoverSearcher(icon_nocover_item_, albumcover_loader_, this);
   cover_export_ = new AlbumCoverExport(this);
 
   // Set up the status bar
@@ -241,7 +253,7 @@ void AlbumCoverManager::Init() {
 
   s.endGroup();
 
-  QObject::connect(&*app_->album_cover_loader(), &AlbumCoverLoader::AlbumCoverLoaded, this, &AlbumCoverManager::AlbumCoverLoaded);
+  QObject::connect(&*albumcover_loader_, &AlbumCoverLoader::AlbumCoverLoaded, this, &AlbumCoverManager::AlbumCoverLoaded);
 
   cover_searcher_->Init(cover_fetcher_);
 
@@ -320,7 +332,7 @@ void AlbumCoverManager::SaveSettings() {
 
 void AlbumCoverManager::CancelRequests() {
 
-  app_->album_cover_loader()->CancelTasks(QSet<quint64>(cover_loading_tasks_.keyBegin(), cover_loading_tasks_.keyEnd()));
+  albumcover_loader_->CancelTasks(QSet<quint64>(cover_loading_tasks_.keyBegin(), cover_loading_tasks_.keyEnd()));
   cover_loading_pending_.clear();
   cover_loading_tasks_.clear();
   cover_save_tasks_.clear();
@@ -363,7 +375,7 @@ void AlbumCoverManager::Reset() {
 }
 
 void AlbumCoverManager::EnableCoversButtons() {
-  ui_->button_fetch->setEnabled(app_->cover_providers()->HasAnyProviders());
+  ui_->button_fetch->setEnabled(cover_providers_->HasAnyProviders());
   ui_->export_covers->setEnabled(true);
 }
 
@@ -466,7 +478,7 @@ void AlbumCoverManager::LoadAlbumCoverAsync(AlbumItem *album_item) {
   cover_options.types = cover_types_;
   cover_options.desired_scaled_size = QSize(kThumbnailSize, kThumbnailSize);
   cover_options.device_pixel_ratio = devicePixelRatioF();
-  quint64 cover_load_id = app_->album_cover_loader()->LoadImageAsync(cover_options, album_item->data(Role_ArtEmbedded).toBool(), album_item->data(Role_ArtAutomatic).toUrl(), album_item->data(Role_ArtManual).toUrl(), album_item->data(Role_ArtUnset).toBool(), album_item->urls.constFirst());
+  quint64 cover_load_id = albumcover_loader_->LoadImageAsync(cover_options, album_item->data(Role_ArtEmbedded).toBool(), album_item->data(Role_ArtAutomatic).toUrl(), album_item->data(Role_ArtManual).toUrl(), album_item->data(Role_ArtUnset).toBool(), album_item->urls.constFirst());
   cover_loading_tasks_.insert(cover_load_id, album_item);
 
 }
@@ -643,7 +655,7 @@ bool AlbumCoverManager::eventFilter(QObject *obj, QEvent *e) {
     album_cover_choice_controller_->cover_to_file_action()->setEnabled(some_with_covers);
     album_cover_choice_controller_->cover_from_file_action()->setEnabled(context_menu_items_.size() == 1);
     album_cover_choice_controller_->cover_from_url_action()->setEnabled(context_menu_items_.size() == 1);
-    album_cover_choice_controller_->search_for_cover_action()->setEnabled(app_->cover_providers()->HasAnyProviders());
+    album_cover_choice_controller_->search_for_cover_action()->setEnabled(cover_providers_->HasAnyProviders());
     album_cover_choice_controller_->unset_cover_action()->setEnabled(some_with_covers || some_clear);
     album_cover_choice_controller_->clear_cover_action()->setEnabled(some_with_covers || some_unset);
     album_cover_choice_controller_->delete_cover_action()->setEnabled(some_with_covers);
@@ -757,9 +769,9 @@ void AlbumCoverManager::SaveCoverToFile() {
         return;
       case AlbumCoverLoaderOptions::Type::Embedded:
         if (song.art_embedded()) {
-          const TagReaderClient::Result tagreaderclient_result = TagReaderClient::Instance()->LoadEmbeddedArtBlocking(song.url().toLocalFile(), result.image_data);
+          const TagReaderResult tagreaderclient_result = tagreader_client_->LoadCoverDataBlocking(song.url().toLocalFile(), result.image_data);
           if (!tagreaderclient_result.success()) {
-            qLog(Error) << "Could not load embedded art from" << song.url() << tagreaderclient_result.error;
+            qLog(Error) << "Could not load embedded art from" << song.url() << tagreaderclient_result.error_string();
           }
         }
         break;
@@ -844,9 +856,11 @@ void AlbumCoverManager::SaveImageToAlbums(Song *song, const AlbumCoverImageResul
       case CoverOptions::CoverType::Embedded:{
         for (const QUrl &url : std::as_const(album_item->urls)) {
           const bool art_embedded = !result.image_data.isEmpty();
-          TagReaderReply *reply = app_->tag_reader_client()->SaveEmbeddedArt(url.toLocalFile(), TagReaderClient::SaveCoverOptions(result.image_data, result.mime_type));
-          QObject::connect(reply, &TagReaderReply::Finished, this, [this, reply, album_item, url, art_embedded]() {
+          TagReaderReplyPtr reply = tagreader_client_->SaveCoverAsync(url.toLocalFile(), SaveTagCoverData(result.image_data, result.mime_type));
+          SharedPtr<QMetaObject::Connection> connection = make_shared<QMetaObject::Connection>();
+          *connection = QObject::connect(&*reply, &TagReaderReply::Finished, this, [this, reply, album_item, url, art_embedded, connection]() {
             SaveEmbeddedCoverFinished(reply, album_item, url, art_embedded);
+            QObject::disconnect(*connection);
           });
           cover_save_tasks_.insert(album_item, url);
         }
@@ -920,12 +934,12 @@ SongList AlbumCoverManager::GetSongsInAlbum(const QModelIndex &idx) const {
 
   CollectionQuery q(db, collection_backend_->songs_table());
   q.SetColumnSpec(Song::kRowIdColumnSpec);
-  q.AddWhere(QStringLiteral("album"), idx.data(Role_Album).toString());
-  q.SetOrderBy(QStringLiteral("disc, track, title"));
+  q.AddWhere(u"album"_s, idx.data(Role_Album).toString());
+  q.SetOrderBy(u"disc, track, title"_s);
 
   QString albumartist = idx.data(Role_AlbumArtist).toString();
   if (!albumartist.isEmpty()) {
-    q.AddWhere(QStringLiteral("effective_albumartist"), albumartist);
+    q.AddWhere(u"effective_albumartist"_s, albumartist);
   }
 
   q.AddCompilationRequirement(albumartist.isEmpty());
@@ -994,9 +1008,11 @@ void AlbumCoverManager::SaveAndSetCover(AlbumItem *album_item, const AlbumCoverI
   if (album_cover_choice_controller_->get_save_album_cover_type() == CoverOptions::CoverType::Embedded && Song::save_embedded_cover_supported(filetype) && !has_cue) {
     for (const QUrl &url : urls) {
       const bool art_embedded = !result.image_data.isEmpty();
-      TagReaderReply *reply = app_->tag_reader_client()->SaveEmbeddedArt(url.toLocalFile(), TagReaderClient::SaveCoverOptions(result.cover_url.isValid() ? result.cover_url.toLocalFile() : QString(), result.image_data, result.mime_type));
-      QObject::connect(reply, &TagReaderReply::Finished, this, [this, reply, album_item, url, art_embedded]() {
+      TagReaderReplyPtr reply = tagreader_client_->SaveCoverAsync(url.toLocalFile(), SaveTagCoverData(result.cover_url.isValid() ? result.cover_url.toLocalFile() : QString(), result.image_data, result.mime_type));
+      SharedPtr<QMetaObject::Connection> connection = std::make_shared<QMetaObject::Connection>();
+      *connection = QObject::connect(&*reply, &TagReaderReply::Finished, this, [this, reply, album_item, url, art_embedded, connection]() {
         SaveEmbeddedCoverFinished(reply, album_item, url, art_embedded);
+        QObject::disconnect(*connection);
       });
       cover_save_tasks_.insert(album_item, url);
     }
@@ -1093,13 +1109,13 @@ bool AlbumCoverManager::ItemHasCover(const AlbumItem &album_item) const {
   return album_item.icon().cacheKey() != icon_nocover_item_.cacheKey();
 }
 
-void AlbumCoverManager::SaveEmbeddedCoverFinished(TagReaderReply *reply, AlbumItem *album_item, const QUrl &url, const bool art_embedded) {
+void AlbumCoverManager::SaveEmbeddedCoverFinished(TagReaderReplyPtr reply, AlbumItem *album_item, const QUrl &url, const bool art_embedded) {
 
   if (cover_save_tasks_.contains(album_item, url)) {
     cover_save_tasks_.remove(album_item, url);
   }
 
-  if (!reply->is_successful()) {
+  if (!reply->success()) {
     Q_EMIT Error(tr("Could not save cover to file %1.").arg(url.toLocalFile()));
     return;
   }

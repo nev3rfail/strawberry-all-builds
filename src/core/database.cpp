@@ -39,17 +39,16 @@
 #include <QSqlDriver>
 #include <QSqlDatabase>
 #include <QSqlError>
-#include <QStandardPaths>
 #include <QScopeGuard>
 
-#include "core/logging.h"
+#include "logging.h"
+#include "standardpaths.h"
 #include "taskmanager.h"
 #include "database.h"
-#include "application.h"
 #include "sqlquery.h"
 #include "scopedtransaction.h"
 
-using namespace Qt::StringLiterals;
+using namespace Qt::Literals::StringLiterals;
 
 const int Database::kSchemaVersion = 20;
 
@@ -62,15 +61,15 @@ constexpr char kMagicAllSongsTables[] = "%allsongstables";
 int Database::sNextConnectionId = 1;
 QMutex Database::sNextConnectionIdMutex;
 
-Database::Database(Application *app, QObject *parent, const QString &database_name) :
+Database::Database(SharedPtr<TaskManager> task_manager, QObject *parent, const QString &database_name) :
       QObject(parent),
-      app_(app),
+      task_manager_(task_manager),
       injected_database_name_(database_name),
       query_hash_(0),
       startup_schema_version_(-1),
       original_thread_(nullptr) {
 
-  setObjectName(QLatin1String(metaObject()->className()));
+  setObjectName(QLatin1String(QObject::metaObject()->className()));
 
   original_thread_ = thread();
 
@@ -79,7 +78,7 @@ Database::Database(Application *app, QObject *parent, const QString &database_na
     connection_id_ = sNextConnectionId++;
   }
 
-  directory_ = QDir::toNativeSeparators(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation));
+  directory_ = QDir::toNativeSeparators(StandardPaths::WritableLocation(StandardPaths::StandardLocation::AppLocalDataLocation)).replace(u"Strawberry"_s, u"strawberry"_s);
 
   QMutexLocker l(&mutex_);
   Connect();
@@ -129,12 +128,12 @@ QSqlDatabase Database::Connect() {
     db = QSqlDatabase::database(connection_id);
   }
   else {
-    db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connection_id);
+    db = QSqlDatabase::addDatabase(u"QSQLITE"_s, connection_id);
   }
   if (db.isOpen()) {
     return db;
   }
-  db.setConnectOptions(QStringLiteral("QSQLITE_BUSY_TIMEOUT=30000"));
+  db.setConnectOptions(u"QSQLITE_BUSY_TIMEOUT=30000"_s);
   //qLog(Debug) << "Opened database with connection id" << connection_id;
 
   if (injected_database_name_.isNull()) {
@@ -145,7 +144,7 @@ QSqlDatabase Database::Connect() {
   }
 
   if (!db.open()) {
-    app_->AddError(QStringLiteral("Database: ") + db.lastError().text());
+    Q_EMIT Error(u"Database: "_s + db.lastError().text());
     return db;
   }
 
@@ -168,9 +167,9 @@ QSqlDatabase Database::Connect() {
 
     // Attach the db
     SqlQuery q(db);
-    q.prepare(QStringLiteral("ATTACH DATABASE :filename AS :alias"));
-    q.BindValue(QStringLiteral(":filename"), filename);
-    q.BindValue(QStringLiteral(":alias"), key);
+    q.prepare(u"ATTACH DATABASE :filename AS :alias"_s);
+    q.BindValue(u":filename"_s, filename);
+    q.BindValue(u":alias"_s, key);
     if (!q.Exec()) {
       qFatal("Couldn't attach external database '%s'", key.toLatin1().constData());
     }
@@ -225,7 +224,7 @@ int Database::SchemaVersion(QSqlDatabase *db) {
   int schema_version = 0;
   {
     SqlQuery q(*db);
-    q.prepare(QStringLiteral("SELECT version FROM schema_version"));
+    q.prepare(u"SELECT version FROM schema_version"_s);
     if (q.Exec() && q.next()) {
       schema_version = q.value(0).toInt();
     }
@@ -266,8 +265,8 @@ void Database::RecreateAttachedDb(const QString &database_name) {
     QSqlDatabase db(Connect());
 
     SqlQuery q(db);
-    q.prepare(QStringLiteral("DETACH DATABASE :alias"));
-    q.BindValue(QStringLiteral(":alias"), database_name);
+    q.prepare(u"DETACH DATABASE :alias"_s);
+    q.BindValue(u":alias"_s, database_name);
     if (!q.Exec()) {
       qLog(Warning) << "Failed to detach database" << database_name;
       return;
@@ -297,9 +296,9 @@ void Database::AttachDatabaseOnDbConnection(const QString &database_name, const 
 
   // Attach the db
   SqlQuery q(db);
-  q.prepare(QStringLiteral("ATTACH DATABASE :filename AS :alias"));
-  q.BindValue(QStringLiteral(":filename"), database.filename_);
-  q.BindValue(QStringLiteral(":alias"), database_name);
+  q.prepare(u"ATTACH DATABASE :filename AS :alias"_s);
+  q.BindValue(u":filename"_s, database.filename_);
+  q.BindValue(u":alias"_s, database_name);
   if (!q.Exec()) {
     qFatal("Couldn't attach external database '%s'", database_name.toLatin1().constData());
   }
@@ -313,8 +312,8 @@ void Database::DetachDatabase(const QString &database_name) {
     QSqlDatabase db(Connect());
 
     SqlQuery q(db);
-    q.prepare(QStringLiteral("DETACH DATABASE :alias"));
-    q.BindValue(QStringLiteral(":alias"), database_name);
+    q.prepare(u"DETACH DATABASE :alias"_s);
+    q.BindValue(u":alias"_s, database_name);
     if (!q.Exec()) {
       qLog(Warning) << "Failed to detach database" << database_name;
       return;
@@ -329,7 +328,7 @@ void Database::UpdateDatabaseSchema(int version, QSqlDatabase &db) {
 
   QString filename;
   if (version == 0) {
-    filename = QStringLiteral(":/schema/schema.sql");
+    filename = u":/schema/schema.sql"_s;
   }
   else {
     filename = QStringLiteral(":/schema/schema-%1.sql").arg(version);
@@ -360,8 +359,8 @@ void Database::UrlEncodeFilenameColumn(const QString &table, QSqlDatabase &db) {
 
     const QUrl url = QUrl::fromLocalFile(filename);
 
-    update.BindValue(QStringLiteral(":filename"), url.toEncoded());
-    update.BindValue(QStringLiteral(":id"), rowid);
+    update.BindValue(u":filename"_s, url.toEncoded());
+    update.BindValue(u":id"_s, rowid);
     if (!update.Exec()) {
       ReportErrors(update);
     }
@@ -389,7 +388,7 @@ void Database::ExecSchemaCommandsFromFile(QSqlDatabase &db, const QString &filen
 void Database::ExecSchemaCommands(QSqlDatabase &db, const QString &schema, int schema_version, bool in_transaction) {
 
   // Run each command
-  static const QRegularExpression regex_split_commands(QStringLiteral("; *\n\n"));
+  static const QRegularExpression regex_split_commands(u"; *\n\n"_s);
   QStringList commands = schema.split(regex_split_commands);
 
   // We don't want this list to reflect possible DB schema changes, so we initialize it before executing any statements.
@@ -471,7 +470,7 @@ QStringList Database::SongsTables(QSqlDatabase &db, const int schema_version) {
     }
   }
 
-  ret << QStringLiteral("playlist_items");
+  ret << u"playlist_items"_s;
 
   return ret;
 
@@ -492,12 +491,12 @@ void Database::ReportErrors(const SqlQuery &query) {
 bool Database::IntegrityCheck(const QSqlDatabase &db) {
 
   qLog(Debug) << "Starting database integrity check";
-  const int task_id = app_->task_manager()->StartTask(tr("Integrity check"));
+  const int task_id = task_manager_->StartTask(tr("Integrity check"));
 
   bool ok = false;
   // Ask for 10 error messages at most.
   SqlQuery q(db);
-  q.prepare(QStringLiteral("PRAGMA integrity_check(10)"));
+  q.prepare(u"PRAGMA integrity_check(10)"_s);
   if (q.Exec()) {
     bool error_reported = false;
     while (q.next()) {
@@ -509,8 +508,8 @@ bool Database::IntegrityCheck(const QSqlDatabase &db) {
         break;
       }
       else {
-        if (!error_reported) { app_->AddError(tr("Database corruption detected.")); }
-        app_->AddError(QStringLiteral("Database: ") + message);
+        if (!error_reported) { Q_EMIT Error(tr("Database corruption detected.")); }
+        Q_EMIT Error(u"Database: "_s + message);
         error_reported = true;
       }
     }
@@ -519,7 +518,7 @@ bool Database::IntegrityCheck(const QSqlDatabase &db) {
     ReportErrors(q);
   }
 
-  app_->task_manager()->SetTaskFinished(task_id);
+  task_manager_->SetTaskFinished(task_id);
 
   return ok;
 
@@ -563,7 +562,7 @@ void Database::BackupFile(const QString &filename) {
 
   qLog(Debug) << "Starting database backup";
   QString dest_filename = QStringLiteral("%1.bak").arg(filename);
-  const int task_id = app_->task_manager()->StartTask(tr("Backing up database"));
+  const int task_id = task_manager_->StartTask(tr("Backing up database"));
 
   sqlite3 *source_connection = nullptr;
   sqlite3 *dest_connection = nullptr;
@@ -575,7 +574,7 @@ void Database::BackupFile(const QString &filename) {
     if (dest_connection) {
       sqlite3_close(dest_connection);
     }
-    app_->task_manager()->SetTaskFinished(task_id);
+    task_manager_->SetTaskFinished(task_id);
   });
 
   bool success = OpenDatabase(filename, &source_connection);
@@ -599,7 +598,7 @@ void Database::BackupFile(const QString &filename) {
   do {
     ret = sqlite3_backup_step(backup, 16);
     const int page_count = sqlite3_backup_pagecount(backup);
-    app_->task_manager()->SetTaskProgress(task_id, page_count - sqlite3_backup_remaining(backup), page_count);
+    task_manager_->SetTaskProgress(task_id, page_count - sqlite3_backup_remaining(backup), page_count);
   }
   while (ret == SQLITE_OK);
 

@@ -64,11 +64,10 @@
 #include <QShowEvent>
 #include <QHideEvent>
 
-#include "core/application.h"
-#include "core/mimedata.h"
-#include "core/iconloader.h"
 #include "core/song.h"
+#include "core/iconloader.h"
 #include "core/settings.h"
+#include "core/mimedata.h"
 #include "collection/collectionfilterwidget.h"
 #include "collection/collectionmodel.h"
 #include "collection/groupbydialog.h"
@@ -82,9 +81,10 @@
 #include "streamingsearchsortmodel.h"
 #include "streamingsearchview.h"
 #include "ui_streamingsearchview.h"
-#include "settings/appearancesettingspage.h"
+#include "constants/appearancesettings.h"
 
 using std::make_unique;
+using namespace Qt::Literals::StringLiterals;
 
 namespace {
 constexpr int kSwapModelsTimeoutMsec = 250;
@@ -94,7 +94,6 @@ constexpr int kArtHeight = 32;
 
 StreamingSearchView::StreamingSearchView(QWidget *parent)
     : QWidget(parent),
-      app_(nullptr),
       service_(nullptr),
       ui_(new Ui_StreamingSearchView),
       context_menu_(nullptr),
@@ -117,12 +116,12 @@ StreamingSearchView::StreamingSearchView(QWidget *parent)
   ui_->search->installEventFilter(this);
   ui_->results_stack->installEventFilter(this);
 
-  ui_->settings->setIcon(IconLoader::Load(QStringLiteral("configure")));
+  ui_->settings->setIcon(IconLoader::Load(u"configure"_s));
 
   // Set the appearance of the results list
   ui_->results->setItemDelegate(new StreamingSearchItemDelegate(this));
   ui_->results->setAttribute(Qt::WA_MacShowFocusRect, false);
-  ui_->results->setStyleSheet(QStringLiteral("QTreeView::item{padding-top:1px;}"));
+  ui_->results->setStyleSheet(u"QTreeView::item{padding-top:1px;}"_s);
 
   // Show the help page initially
   ui_->results_stack->setCurrentWidget(ui_->help_page);
@@ -148,10 +147,10 @@ StreamingSearchView::StreamingSearchView(QWidget *parent)
 
 StreamingSearchView::~StreamingSearchView() { delete ui_; }
 
-void StreamingSearchView::Init(Application *app, StreamingServicePtr service) {
+void StreamingSearchView::Init(const StreamingServicePtr service, const SharedPtr<AlbumCoverLoader> albumcover_loader) {
 
-  app_ = app;
   service_ = service;
+  albumcover_loader_ = albumcover_loader;
 
   front_model_ = new StreamingSearchModel(service, this);
   back_model_ = new StreamingSearchModel(service, this);
@@ -179,7 +178,7 @@ void StreamingSearchView::Init(Application *app, StreamingServicePtr service) {
   QMenu *settings_menu = new QMenu(this);
   settings_menu->addActions(group_by_actions_->actions());
   settings_menu->addSeparator();
-  settings_menu->addAction(IconLoader::Load(QStringLiteral("configure")), tr("Configure %1...").arg(Song::DescriptionForSource(service_->source())), this, &StreamingSearchView::OpenSettingsDialog);
+  settings_menu->addAction(IconLoader::Load(u"configure"_s), tr("Configure %1...").arg(Song::DescriptionForSource(service_->source())), this, &StreamingSearchView::Configure);
   ui_->settings->setMenu(settings_menu);
 
   swap_models_timer_->setSingleShot(true);
@@ -201,8 +200,7 @@ void StreamingSearchView::Init(Application *app, StreamingServicePtr service) {
   QObject::connect(&*service_, &StreamingService::SearchUpdateProgress, this, &StreamingSearchView::UpdateProgress);
   QObject::connect(&*service_, &StreamingService::SearchResults, this, &StreamingSearchView::SearchDone);
 
-  QObject::connect(app_, &Application::SettingsChanged, this, &StreamingSearchView::ReloadSettings);
-  QObject::connect(&*app_->album_cover_loader(), &AlbumCoverLoader::AlbumCoverLoaded, this, &StreamingSearchView::AlbumCoverLoaded);
+  QObject::connect(&*albumcover_loader_, &AlbumCoverLoader::AlbumCoverLoaded, this, &StreamingSearchView::AlbumCoverLoaded);
 
   QObject::connect(ui_->settings, &QToolButton::clicked, ui_->settings, &QToolButton::showMenu);
 
@@ -248,8 +246,8 @@ void StreamingSearchView::ReloadSettings() {
   }
   s.endGroup();
 
-  s.beginGroup(AppearanceSettingsPage::kSettingsGroup);
-  int iconsize = s.value(AppearanceSettingsPage::kIconSizeConfigureButtons, 20).toInt();
+  s.beginGroup(AppearanceSettings::kSettingsGroup);
+  int iconsize = s.value(AppearanceSettings::kIconSizeConfigureButtons, 20).toInt();
   s.endGroup();
 
   ui_->settings->setIconSize(QSize(iconsize, iconsize));
@@ -316,36 +314,36 @@ bool StreamingSearchView::ResultsContextMenuEvent(QContextMenuEvent *e) {
 
   if (!context_menu_) {
     context_menu_ = new QMenu(this);
-    context_actions_ << context_menu_->addAction(IconLoader::Load(QStringLiteral("media-playback-start")), tr("Append to current playlist"), this, &StreamingSearchView::AddSelectedToPlaylist);
-    context_actions_ << context_menu_->addAction(IconLoader::Load(QStringLiteral("media-playback-start")), tr("Replace current playlist"), this, &StreamingSearchView::LoadSelected);
-    context_actions_ << context_menu_->addAction(IconLoader::Load(QStringLiteral("document-new")), tr("Open in new playlist"), this, &StreamingSearchView::OpenSelectedInNewPlaylist);
+    context_actions_ << context_menu_->addAction(IconLoader::Load(u"media-playback-start"_s), tr("Append to current playlist"), this, &StreamingSearchView::AddSelectedToPlaylist);
+    context_actions_ << context_menu_->addAction(IconLoader::Load(u"media-playback-start"_s), tr("Replace current playlist"), this, &StreamingSearchView::LoadSelected);
+    context_actions_ << context_menu_->addAction(IconLoader::Load(u"document-new"_s), tr("Open in new playlist"), this, &StreamingSearchView::OpenSelectedInNewPlaylist);
 
     context_menu_->addSeparator();
-    context_actions_ << context_menu_->addAction(IconLoader::Load(QStringLiteral("go-next")), tr("Queue track"), this, &StreamingSearchView::AddSelectedToPlaylistEnqueue);
+    context_actions_ << context_menu_->addAction(IconLoader::Load(u"go-next"_s), tr("Queue track"), this, &StreamingSearchView::AddSelectedToPlaylistEnqueue);
 
     context_menu_->addSeparator();
 
     if (service_->artists_collection_model() || service_->albums_collection_model() || service_->songs_collection_model()) {
       if (service_->artists_collection_model()) {
-        context_actions_ << context_menu_->addAction(IconLoader::Load(QStringLiteral("folder-new")), tr("Add to artists"), this, &StreamingSearchView::AddArtists);
+        context_actions_ << context_menu_->addAction(IconLoader::Load(u"folder-new"_s), tr("Add to artists"), this, &StreamingSearchView::AddArtists);
       }
       if (service_->albums_collection_model()) {
-        context_actions_ << context_menu_->addAction(IconLoader::Load(QStringLiteral("folder-new")), tr("Add to albums"), this, &StreamingSearchView::AddAlbums);
+        context_actions_ << context_menu_->addAction(IconLoader::Load(u"folder-new"_s), tr("Add to albums"), this, &StreamingSearchView::AddAlbums);
       }
       if (service_->songs_collection_model()) {
-        context_actions_ << context_menu_->addAction(IconLoader::Load(QStringLiteral("folder-new")), tr("Add to songs"), this, &StreamingSearchView::AddSongs);
+        context_actions_ << context_menu_->addAction(IconLoader::Load(u"folder-new"_s), tr("Add to songs"), this, &StreamingSearchView::AddSongs);
       }
       context_menu_->addSeparator();
     }
 
     if (ui_->results->selectionModel() && ui_->results->selectionModel()->selectedRows().length() == 1) {
-      context_actions_ << context_menu_->addAction(IconLoader::Load(QStringLiteral("search")), tr("Search for this"), this, &StreamingSearchView::SearchForThis);
+      context_actions_ << context_menu_->addAction(IconLoader::Load(u"search"_s), tr("Search for this"), this, &StreamingSearchView::SearchForThis);
     }
 
     context_menu_->addSeparator();
     context_menu_->addMenu(tr("Group by"))->addActions(group_by_actions_->actions());
 
-    context_menu_->addAction(IconLoader::Load(QStringLiteral("configure")), tr("Configure %1...").arg(Song::TextForSource(service_->source())), this, &StreamingSearchView::OpenSettingsDialog);
+    context_menu_->addAction(IconLoader::Load(u"configure"_s), tr("Configure %1...").arg(Song::TextForSource(service_->source())), this, &StreamingSearchView::Configure);
 
   }
 
@@ -436,7 +434,7 @@ void StreamingSearchView::SwapModels() {
 
 QStringList StreamingSearchView::TokenizeQuery(const QString &query) {
 
-  static const QRegularExpression regex_whitespaces(QStringLiteral("\\s+"));
+  static const QRegularExpression regex_whitespaces(u"\\s+"_s);
   QStringList tokens = query.split(regex_whitespaces);
 
   for (QStringList::iterator it = tokens.begin(); it != tokens.end(); ++it) {
@@ -676,8 +674,8 @@ void StreamingSearchView::FocusOnFilter(QKeyEvent *e) {
 
 }
 
-void StreamingSearchView::OpenSettingsDialog() {
-  app_->OpenSettingsDialogAtPage(service_->settings_page());
+void StreamingSearchView::Configure() {
+  Q_EMIT OpenSettingsDialog(service_->source());
 }
 
 void StreamingSearchView::GroupByClicked(QAction *action) {
@@ -732,15 +730,18 @@ void StreamingSearchView::SetGroupBy(const CollectionModel::Grouping g) {
 
 }
 
-void StreamingSearchView::SearchArtistsClicked(const bool) {
+void StreamingSearchView::SearchArtistsClicked(const bool checked) {
+  Q_UNUSED(checked)
   SetSearchType(StreamingSearchView::SearchType::Artists);
 }
 
-void StreamingSearchView::SearchAlbumsClicked(const bool) {
+void StreamingSearchView::SearchAlbumsClicked(const bool checked) {
+  Q_UNUSED(checked)
   SetSearchType(StreamingSearchView::SearchType::Albums);
 }
 
-void StreamingSearchView::SearchSongsClicked(const bool) {
+void StreamingSearchView::SearchSongsClicked(const bool checked) {
+  Q_UNUSED(checked)
   SetSearchType(StreamingSearchView::SearchType::Songs);
 }
 
@@ -853,7 +854,7 @@ void StreamingSearchView::LazyLoadAlbumCover(const QModelIndex &proxy_index) {
   else {
     AlbumCoverLoaderOptions cover_loader_options(AlbumCoverLoaderOptions::Option::ScaledImage | AlbumCoverLoaderOptions::Option::PadScaledImage);
     cover_loader_options.desired_scaled_size = QSize(kArtHeight, kArtHeight);
-    quint64 loader_id = app_->album_cover_loader()->LoadImageAsync(cover_loader_options, result.metadata_);
+    quint64 loader_id = albumcover_loader_->LoadImageAsync(cover_loader_options, result.metadata_);
     cover_loader_tasks_[loader_id] = qMakePair(source_index, result.pixmap_cache_key_);
   }
 

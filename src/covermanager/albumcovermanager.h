@@ -37,9 +37,9 @@
 #include <QImage>
 #include <QIcon>
 
-#include "core/shared_ptr.h"
+#include "includes/shared_ptr.h"
 #include "core/song.h"
-#include "core/tagreaderclient.h"
+#include "tagreader/tagreaderclient.h"
 #include "albumcoverloaderoptions.h"
 #include "albumcoverloaderresult.h"
 #include "albumcoverchoicecontroller.h"
@@ -55,8 +55,11 @@ class QEvent;
 class QCloseEvent;
 class QShowEvent;
 
-class Application;
+class NetworkAccessManager;
 class CollectionBackend;
+class AlbumCoverLoader;
+class CurrentAlbumCoverLoader;
+class CoverProviders;
 class SongMimeData;
 class AlbumCoverExport;
 class AlbumCoverExporter;
@@ -78,7 +81,15 @@ class AlbumCoverManager : public QMainWindow {
   Q_OBJECT
 
  public:
-  explicit AlbumCoverManager(Application *app, SharedPtr<CollectionBackend> collection_backend, QMainWindow *mainwindow, QWidget *parent = nullptr);
+  explicit AlbumCoverManager(const SharedPtr<NetworkAccessManager> network,
+                             const SharedPtr<CollectionBackend> collection_backend,
+                             const SharedPtr<TagReaderClient> tagreader_client,
+                             const SharedPtr<AlbumCoverLoader> albumcover_loader,
+                             const SharedPtr<CurrentAlbumCoverLoader> current_albumcover_loader,
+                             const SharedPtr<CoverProviders> cover_providers,
+                             const SharedPtr<StreamingServices> streaming_services,
+                             QMainWindow *mainwindow,
+                             QWidget *parent = nullptr);
   ~AlbumCoverManager() override;
 
   void Reset();
@@ -185,13 +196,18 @@ class AlbumCoverManager : public QMainWindow {
   void UpdateCoverInList(AlbumItem *album_item, const QUrl &cover);
   void UpdateExportStatus(const int exported, const int skipped, const int max);
 
-  void SaveEmbeddedCoverFinished(TagReaderReply *reply, AlbumItem *album_item, const QUrl &url, const bool art_embedded);
+  void SaveEmbeddedCoverFinished(TagReaderReplyPtr reply, AlbumItem *album_item, const QUrl &url, const bool art_embedded);
 
  private:
   Ui_CoverManager *ui_;
   QMainWindow *mainwindow_;
-  Application *app_;
-  SharedPtr<CollectionBackend> collection_backend_;
+
+  const SharedPtr<NetworkAccessManager> network_;
+  const SharedPtr<CollectionBackend> collection_backend_;
+  const SharedPtr<TagReaderClient> tagreader_client_;
+  const SharedPtr<AlbumCoverLoader> albumcover_loader_;
+  const SharedPtr<CoverProviders> cover_providers_;
+
   AlbumCoverChoiceController *album_cover_choice_controller_;
   QTimer *timer_album_cover_load_;
 

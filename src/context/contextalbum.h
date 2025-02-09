@@ -33,8 +33,8 @@
 #include <QPixmap>
 #include <QMovie>
 
-#include "core/scoped_ptr.h"
-#include "core/shared_ptr.h"
+#include "includes/scoped_ptr.h"
+#include "includes/shared_ptr.h"
 
 class QMenu;
 class QTimeLine;
@@ -56,7 +56,7 @@ class ContextAlbum : public QWidget {
 
  protected:
   QSize sizeHint() const override;
-  void paintEvent(QPaintEvent*) override;
+  void paintEvent(QPaintEvent *paint_event) override;
   void mouseDoubleClickEvent(QMouseEvent *e) override;
   void contextMenuEvent(QContextMenuEvent *e) override;
 

@@ -2,7 +2,7 @@
  * Strawberry Music Player
  * This file was part of Clementine.
  * Copyright 2010, David Sansome <me@davidsansome.com>
- * Copyright 2018-2023, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -36,30 +36,32 @@
 #include <QMutex>
 
 #include "collectiondirectory.h"
-#include "core/shared_ptr.h"
+#include "includes/shared_ptr.h"
 #include "core/song.h"
 
 class QThread;
 class QTimer;
 
+class TaskManager;
+class TagReaderClient;
 class CollectionBackend;
 class FileSystemWatcherInterface;
-class TaskManager;
 class CueParser;
-
-using namespace Qt::Literals::StringLiterals;
 
 class CollectionWatcher : public QObject {
   Q_OBJECT
 
  public:
-  explicit CollectionWatcher(Song::Source source, QObject *parent = nullptr);
+  explicit CollectionWatcher(const Song::Source source,
+                             const SharedPtr<TaskManager> task_manager,
+                             const SharedPtr<TagReaderClient> tagreader_client,
+                             const SharedPtr<CollectionBackend> backend,
+                             QObject *parent = nullptr);
+
   ~CollectionWatcher();
 
-  Song::Source source() { return source_; }
+  Song::Source source() const { return source_; }
 
-  void set_backend(SharedPtr<CollectionBackend> backend) { backend_ = backend; }
-  void set_task_manager(SharedPtr<TaskManager> task_manager) { task_manager_ = task_manager; }
   void set_device_name(const QString &device_name) { device_name_ = device_name; }
 
   void IncrementalScanAsync();
@@ -135,7 +137,6 @@ class CollectionWatcher : public QObject {
     QStringList files_changed_path_;
 
    private:
-    ScanTransaction(const ScanTransaction&) {}
     ScanTransaction &operator=(const ScanTransaction&) { return *this; }
 
     int task_id_;
@@ -199,12 +200,12 @@ class CollectionWatcher : public QObject {
   void PerformScan(const bool incremental, const bool ignore_mtimes);
 
   // Updates the sections of a cue associated and altered (according to mtime) media file during a scan.
-  void UpdateCueAssociatedSongs(const QString &file, const QString &path, const QString &fingerprint, const QString &matching_cue, const QUrl &art_automatic, const SongList &old_cue_songs, ScanTransaction *t);
+  void UpdateCueAssociatedSongs(const QString &file, const QString &path, const QString &fingerprint, const QString &matching_cue, const QUrl &art_automatic, const SongList &old_cue_songs, ScanTransaction *t) const;
   // Updates a single non-cue associated and altered (according to mtime) song during a scan.
   void UpdateNonCueAssociatedSong(const QString &file, const QString &fingerprint, const SongList &matching_songs, const QUrl &art_automatic, const bool cue_deleted, ScanTransaction *t);
   // Scans a single media file that's present on the disk but not yet in the collection.
   // It may result in a multiple files added to the collection when the media file has many sections (like a CUE related media file).
-  SongList ScanNewFile(const QString &file, const QString &path, const QString &fingerprint, const QString &matching_cue, QSet<QString> *cues_processed);
+  SongList ScanNewFile(const QString &file, const QString &path, const QString &fingerprint, const QString &matching_cue, QSet<QString> *cues_processed) const;
 
   static void AddChangedSong(const QString &file, const Song &matching_song, const Song &new_song, ScanTransaction *t);
 
@@ -216,9 +217,12 @@ class CollectionWatcher : public QObject {
   QString FindCueFilename(const QString &filename);
 
  private:
-  Song::Source source_;
-  SharedPtr<CollectionBackend> backend_;
-  SharedPtr<TaskManager> task_manager_;
+  const Song::Source source_;
+
+  const SharedPtr<TaskManager> task_manager_;
+  const SharedPtr<TagReaderClient> tagreader_client_;
+  const SharedPtr<CollectionBackend> backend_;
+
   QString device_name_;
 
   FileSystemWatcherInterface *fs_watcher_;
@@ -261,11 +265,11 @@ class CollectionWatcher : public QObject {
 };
 
 inline QString CollectionWatcher::NoExtensionPart(const QString &fileName) {
-  return fileName.contains(u'.') ? fileName.section(u'.', 0, -2) : ""_L1;
+  return fileName.contains(u'.') ? fileName.section(u'.', 0, -2) : QLatin1String("");
 }
 // Thanks Amarok
 inline QString CollectionWatcher::ExtensionPart(const QString &fileName) {
-  return fileName.contains(u'.') ? fileName.mid(fileName.lastIndexOf(u'.') + 1).toLower() : ""_L1;
+  return fileName.contains(u'.') ? fileName.mid(fileName.lastIndexOf(u'.') + 1).toLower() : QLatin1String("");
 }
 inline QString CollectionWatcher::DirectoryPart(const QString &fileName) {
   return fileName.section(u'/', 0, -2);

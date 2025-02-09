@@ -36,41 +36,30 @@
 #include <QFontComboBox>
 #include <QSettings>
 
+#include "constants/mainwindowsettings.h"
 #include "core/iconloader.h"
-#include "core/mainwindow.h"
 #include "core/settings.h"
+#include "constants/contextsettings.h"
 #include "settingspage.h"
 #include "settingsdialog.h"
 #include "contextsettingspage.h"
 #include "ui_contextsettingspage.h"
 
-const char *ContextSettingsPage::kSettingsGroup = "Context";
-const char *ContextSettingsPage::kSettingsTitleFmt = "TitleFmt";
-const char *ContextSettingsPage::kSettingsSummaryFmt = "SummaryFmt";
-
-const char *ContextSettingsPage::kSettingsGroupEnable[static_cast<int>(ContextSettingsOrder::NELEMS)] = {
-  "AlbumEnable",
-  "TechnicalDataEnable",
-  "SongLyricsEnable",
-  "SearchCoverEnable",
-  "SearchLyricsEnable",
-};
-
-const char ContextSettingsPage::kDefaultFontFamily[] = "Noto Sans";
-const qreal ContextSettingsPage::kDefaultFontSizeHeadline = 11;
+using namespace Qt::Literals::StringLiterals;
+using namespace ContextSettings;
 
 ContextSettingsPage::ContextSettingsPage(SettingsDialog *dialog, QWidget *parent)
     : SettingsPage(dialog, parent),
       ui_(new Ui_ContextSettingsPage) {
 
   ui_->setupUi(this);
-  setWindowIcon(IconLoader::Load(QStringLiteral("view-choose"), true, 0, 32));
+  setWindowIcon(IconLoader::Load(u"view-choose"_s, true, 0, 32));
 
-  checkboxes_[static_cast<int>(ContextSettingsOrder::ALBUM)] = ui_->checkbox_album;
-  checkboxes_[static_cast<int>(ContextSettingsOrder::TECHNICAL_DATA)] = ui_->checkbox_technical_data;
-  checkboxes_[static_cast<int>(ContextSettingsOrder::SONG_LYRICS)] = ui_->checkbox_song_lyrics;
-  checkboxes_[static_cast<int>(ContextSettingsOrder::SEARCH_COVER)] = ui_->checkbox_search_cover;
-  checkboxes_[static_cast<int>(ContextSettingsOrder::SEARCH_LYRICS)] = ui_->checkbox_search_lyrics;
+  checkboxes_[QLatin1String(kAlbum)] = ui_->checkbox_album;
+  checkboxes_[QLatin1String(kTechnicalData)] = ui_->checkbox_technical_data;
+  checkboxes_[QLatin1String(kSongLyrics)] = ui_->checkbox_song_lyrics;
+  checkboxes_[QLatin1String(kSearchCover)] = ui_->checkbox_search_cover;
+  checkboxes_[QLatin1String(kSearchLyrics)] = ui_->checkbox_search_lyrics;
 
   // Create and populate the helper menus
   QMenu *menu = new QMenu(this);
@@ -104,15 +93,15 @@ ContextSettingsPage::ContextSettingsPage(SettingsDialog *dialog, QWidget *parent
   QObject::connect(ui_->context_exp_chooser2, &QToolButton::triggered, this, &ContextSettingsPage::InsertVariableSecondLine);
 
   // Icons
-  ui_->context_exp_chooser1->setIcon(IconLoader::Load(QStringLiteral("list-add")));
-  ui_->context_exp_chooser2->setIcon(IconLoader::Load(QStringLiteral("list-add")));
+  ui_->context_exp_chooser1->setIcon(IconLoader::Load(u"list-add"_s));
+  ui_->context_exp_chooser2->setIcon(IconLoader::Load(u"list-add"_s));
 
   QObject::connect(ui_->font_headline, &QFontComboBox::currentFontChanged, this, &ContextSettingsPage::HeadlineFontChanged);
   QObject::connect(ui_->font_size_headline, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ContextSettingsPage::HeadlineFontChanged);
   QObject::connect(ui_->font_normal, &QFontComboBox::currentFontChanged, this, &ContextSettingsPage::NormalFontChanged);
   QObject::connect(ui_->font_size_normal, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ContextSettingsPage::NormalFontChanged);
 
-  QFile file(QStringLiteral(":/text/ghosts.txt"));
+  QFile file(u":/text/ghosts.txt"_s);
   if (file.open(QIODevice::ReadOnly)) {
     QString text = QString::fromUtf8(file.readAll());
     ui_->preview_headline->setText(text);
@@ -132,11 +121,11 @@ void ContextSettingsPage::Load() {
   Settings s;
   s.beginGroup(kSettingsGroup);
 
-  ui_->context_custom_text1->setText(s.value(kSettingsTitleFmt, QStringLiteral("%title% - %artist%")).toString());
-  ui_->context_custom_text2->setText(s.value(kSettingsSummaryFmt, QStringLiteral("%album%")).toString());
+  ui_->context_custom_text1->setText(s.value(kSettingsTitleFmt, u"%title% - %artist%"_s).toString());
+  ui_->context_custom_text2->setText(s.value(kSettingsSummaryFmt, u"%album%"_s).toString());
 
-  for (int i = 0; i < static_cast<int>(ContextSettingsOrder::NELEMS); ++i) {
-    checkboxes_[i]->setChecked(s.value(kSettingsGroupEnable[i], checkboxes_[i]->isChecked()).toBool());
+  for (const QString &i : checkboxes_.keys()) {
+    checkboxes_[i]->setChecked(s.value(i, checkboxes_[i]->isChecked()).toBool());
   }
 
   // Fonts
@@ -148,15 +137,15 @@ void ContextSettingsPage::Load() {
   else {
     default_font = font().family();
   }
-  ui_->font_headline->setCurrentFont(s.value("font_headline", default_font).toString());
-  ui_->font_normal->setCurrentFont(s.value("font_normal", default_font).toString());
-  ui_->font_size_headline->setValue(s.value("font_size_headline", kDefaultFontSizeHeadline).toReal());
-  ui_->font_size_normal->setValue(s.value("font_size_normal", font().pointSizeF()).toReal());
+  ui_->font_headline->setCurrentFont(s.value(kFontHeadline, default_font).toString());
+  ui_->font_normal->setCurrentFont(s.value(kFontNormal, default_font).toString());
+  ui_->font_size_headline->setValue(s.value(kFontSizeHeadline, kDefaultFontSizeHeadline).toReal());
+  ui_->font_size_normal->setValue(s.value(kFontSizeNormal, font().pointSizeF()).toReal());
 
   s.endGroup();
 
-  s.beginGroup(MainWindow::kSettingsGroup);
-  ui_->checkbox_search_cover->setChecked(s.value("search_for_cover_auto", true).toBool());
+  s.beginGroup(MainWindowSettings::kSettingsGroup);
+  ui_->checkbox_search_cover->setChecked(s.value(MainWindowSettings::kSearchForCoverAuto, true).toBool());
   s.endGroup();
 
   Init(ui_->layout_contextsettingspage->parentWidget());
@@ -172,17 +161,17 @@ void ContextSettingsPage::Save() {
   s.beginGroup(kSettingsGroup);
   s.setValue(kSettingsTitleFmt, ui_->context_custom_text1->text());
   s.setValue(kSettingsSummaryFmt, ui_->context_custom_text2->text());
-  for (int i = 0; i < static_cast<int>(ContextSettingsOrder::NELEMS); ++i) {
-    s.setValue(kSettingsGroupEnable[i], checkboxes_[i]->isChecked());
+  for (const QString &i : checkboxes_.keys()) {
+    s.setValue(i, checkboxes_[i]->isChecked());
   }
-  s.setValue("font_headline", ui_->font_headline->currentFont().family());
-  s.setValue("font_normal", ui_->font_normal->currentFont().family());
-  s.setValue("font_size_headline", ui_->font_size_headline->value());
-  s.setValue("font_size_normal", ui_->font_size_normal->value());
+  s.setValue(kFontHeadline, ui_->font_headline->currentFont().family());
+  s.setValue(kFontNormal, ui_->font_normal->currentFont().family());
+  s.setValue(kFontSizeHeadline, ui_->font_size_headline->value());
+  s.setValue(kFontSizeNormal, ui_->font_size_normal->value());
   s.endGroup();
 
-  s.beginGroup(MainWindow::kSettingsGroup);
-  s.setValue("search_for_cover_auto", ui_->checkbox_search_cover->isChecked());
+  s.beginGroup(MainWindowSettings::kSettingsGroup);
+  s.setValue(MainWindowSettings::kSearchForCoverAuto, ui_->checkbox_search_cover->isChecked());
   s.endGroup();
 
 }

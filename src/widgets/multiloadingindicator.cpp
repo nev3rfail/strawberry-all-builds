@@ -29,12 +29,12 @@
 #include <QSizePolicy>
 #include <QPaintEvent>
 
-#include "core/shared_ptr.h"
+#include "includes/shared_ptr.h"
 #include "core/taskmanager.h"
 #include "multiloadingindicator.h"
 #include "widgets/busyindicator.h"
 
-using namespace Qt::StringLiterals;
+using namespace Qt::Literals::StringLiterals;
 
 namespace {
 constexpr int kVerticalPadding = 4;
@@ -98,7 +98,9 @@ void MultiLoadingIndicator::UpdateText() {
 
 }
 
-void MultiLoadingIndicator::paintEvent(QPaintEvent*) {
+void MultiLoadingIndicator::paintEvent(QPaintEvent *e) {
+
+  Q_UNUSED(e)
 
   QPainter p(this);
 

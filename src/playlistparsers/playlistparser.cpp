@@ -29,9 +29,9 @@
 #include <QString>
 #include <QStringList>
 
+#include "includes/shared_ptr.h"
+#include "constants/playlistsettings.h"
 #include "core/logging.h"
-#include "core/shared_ptr.h"
-#include "settings/playlistsettingspage.h"
 #include "playlistparser.h"
 #include "parserbase.h"
 #include "asxiniparser.h"
@@ -42,19 +42,19 @@
 #include "wplparser.h"
 #include "xspfparser.h"
 
-using namespace Qt::StringLiterals;
+using namespace Qt::Literals::StringLiterals;
 
 const int PlaylistParser::kMagicSize = 512;
 
-PlaylistParser::PlaylistParser(SharedPtr<CollectionBackendInterface> collection_backend, QObject *parent) : QObject(parent), default_parser_(nullptr) {
+PlaylistParser::PlaylistParser(const SharedPtr<TagReaderClient> tagreader_client, const SharedPtr<CollectionBackendInterface> collection_backend, QObject *parent) : QObject(parent), default_parser_(nullptr) {
 
-  AddParser(new XSPFParser(collection_backend, this));
-  AddParser(new M3UParser(collection_backend, this));
-  AddParser(new PLSParser(collection_backend, this));
-  AddParser(new ASXParser(collection_backend, this));
-  AddParser(new AsxIniParser(collection_backend, this));
-  AddParser(new CueParser(collection_backend, this));
-  AddParser(new WplParser(collection_backend, this));
+  AddParser(new XSPFParser(tagreader_client, collection_backend, this));
+  AddParser(new M3UParser(tagreader_client, collection_backend, this));
+  AddParser(new PLSParser(tagreader_client, collection_backend, this));
+  AddParser(new ASXParser(tagreader_client, collection_backend, this));
+  AddParser(new AsxIniParser(tagreader_client, collection_backend, this));
+  AddParser(new CueParser(tagreader_client, collection_backend, this));
+  AddParser(new WplParser(tagreader_client, collection_backend, this));
 
 }
 
@@ -125,7 +125,7 @@ QString PlaylistParser::FilterForParser(const ParserBase *parser, QStringList *a
   QStringList extensions;
   extensions.reserve(file_extensions.count());
   for (const QString &extension : file_extensions) {
-    extensions << QStringLiteral("*.") + extension;
+    extensions << u"*."_s + extension;
   }
 
   if (all_extensions) *all_extensions << extensions;
@@ -195,7 +195,7 @@ SongList PlaylistParser::LoadFromFile(const QString &filename) const {
     return SongList();
   }
 
-  const SongList songs = parser->Load(&file, filename, fileinfo.absolutePath(), true);
+  const SongList songs = parser->Load(&file, filename, fileinfo.absolutePath(), true).songs;
   file.close();
 
   return songs;
@@ -210,11 +210,11 @@ SongList PlaylistParser::LoadFromDevice(QIODevice *device, const QString &path_h
     return SongList();
   }
 
-  return parser->Load(device, path_hint, dir_hint);
+  return parser->Load(device, path_hint, dir_hint).songs;
 
 }
 
-void PlaylistParser::Save(const SongList &songs, const QString &filename, const PlaylistSettingsPage::PathType path_type) const {
+void PlaylistParser::Save(const QString &playlist_name, const SongList &songs, const QString &filename, const PlaylistSettings::PathType path_type) const {
 
   QFileInfo fileinfo(filename);
   QDir dir(fileinfo.path());
@@ -233,10 +233,10 @@ void PlaylistParser::Save(const SongList &songs, const QString &filename, const 
     return;
   }
 
-  if (path_type == PlaylistSettingsPage::PathType::Absolute && dir.path() != dir.absolutePath()) {
+  if (path_type == PlaylistSettings::PathType::Absolute && dir.path() != dir.absolutePath()) {
     dir.setPath(dir.absolutePath());
   }
-  else if (path_type != PlaylistSettingsPage::PathType::Absolute && !dir.canonicalPath().isEmpty() && dir.path() != dir.canonicalPath()) {
+  else if (path_type != PlaylistSettings::PathType::Absolute && !dir.canonicalPath().isEmpty() && dir.path() != dir.canonicalPath()) {
     dir.setPath(dir.canonicalPath());
   }
 
@@ -248,7 +248,7 @@ void PlaylistParser::Save(const SongList &songs, const QString &filename, const 
     return;
   }
 
-  parser->Save(songs, &file, dir, path_type);
+  parser->Save(playlist_name, songs, &file, dir, path_type);
 
   file.close();
 

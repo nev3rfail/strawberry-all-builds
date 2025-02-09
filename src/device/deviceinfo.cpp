@@ -34,7 +34,7 @@
 #include "devicedatabasebackend.h"
 #include "deviceinfo.h"
 
-using namespace Qt::StringLiterals;
+using namespace Qt::Literals::StringLiterals;
 
 DeviceDatabaseBackend::Device DeviceInfo::SaveToDb() const {
 
@@ -90,7 +90,7 @@ const DeviceInfo::Backend *DeviceInfo::BestBackend() const {
 
 }
 
-void DeviceInfo::LoadIcon(const QVariantList &icons, const QString &name_hint) {
+void DeviceInfo::SetIcon(const QVariantList &icons, const QString &name_hint) {
 
   icon_name_ = "device"_L1;
 

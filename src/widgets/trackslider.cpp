@@ -31,7 +31,7 @@
 
 #include "core/settings.h"
 #include "utilities/timeutils.h"
-#include "utilities/timeconstants.h"
+#include "constants/timeconstants.h"
 #include "trackslider.h"
 #include "ui_trackslider.h"
 #include "clickablelabel.h"
@@ -41,6 +41,8 @@
 #  include "moodbar/moodbarproxystyle.h"
 #endif
 
+using namespace Qt::Literals::StringLiterals;
+
 namespace {
 constexpr char kSettingsGroup[] = "MainWindow";
 }
@@ -49,7 +51,7 @@ TrackSlider::TrackSlider(QWidget *parent)
     : QWidget(parent),
       ui_(new Ui_TrackSlider),
 #ifdef HAVE_MOODBAR
-      moodbar_style_(nullptr),
+      moodbar_proxy_style_(nullptr),
 #endif
       setting_value_(false),
       show_remaining_time_(true),
@@ -79,17 +81,15 @@ TrackSlider::~TrackSlider() {
 
   delete ui_;
 #ifdef HAVE_MOODBAR
-  if (moodbar_style_) moodbar_style_->deleteLater();
+  if (moodbar_proxy_style_) moodbar_proxy_style_->deleteLater();
 #endif
 
 }
 
-void TrackSlider::SetApplication(Application *app) {
+void TrackSlider::Init() {
 
 #ifdef HAVE_MOODBAR
-  if (!moodbar_style_) moodbar_style_ = new MoodbarProxyStyle(app, ui_->slider);
-#else
-  Q_UNUSED(app);
+  if (!moodbar_proxy_style_) moodbar_proxy_style_ = new MoodbarProxyStyle(ui_->slider);
 #endif
 
 }
@@ -97,8 +97,8 @@ void TrackSlider::SetApplication(Application *app) {
 void TrackSlider::UpdateLabelWidth() {
 
   // We set the label's minimum size, so it won't resize itself when the user is dragging the slider.
-  UpdateLabelWidth(ui_->elapsed, QStringLiteral("0:00:00"));
-  UpdateLabelWidth(ui_->remaining, QStringLiteral("-0:00:00"));
+  UpdateLabelWidth(ui_->elapsed, u"0:00:00"_s);
+  UpdateLabelWidth(ui_->remaining, u"-0:00:00"_s);
 
 }
 
@@ -161,8 +161,8 @@ void TrackSlider::UpdateTimes(const int elapsed) {
 void TrackSlider::SetStopped() {
 
   setEnabled(false);
-  ui_->elapsed->setText(QStringLiteral("0:00:00"));
-  ui_->remaining->setText(QStringLiteral("0:00:00"));
+  ui_->elapsed->setText(u"0:00:00"_s);
+  ui_->remaining->setText(u"0:00:00"_s);
 
   setting_value_ = true;
   ui_->slider->setValue(0);

@@ -39,8 +39,11 @@
    </item>
    <item>
     <widget class="QCheckBox" name="checkbox_offline">
+     <property name="toolTip">
+      <string>With this option enabled, scrobbles will be cached to disk but not sent to the server. This option can be enabled in cases where the server or the internet connection is unstable, the scrobbles will be sent when the option is disabled.</string>
+     </property>
      <property name="text">
-      <string>Work in offline mode (Only cache scrobbles)</string>
+      <string>Offline mode (Only cache scrobbles)</string>
      </property>
     </widget>
    </item>
@@ -62,6 +65,9 @@
     <layout class="QHBoxLayout" name="layout_submit">
      <item>
       <widget class="QLabel" name="label_submit">
+       <property name="toolTip">
+        <string>This is the delay between when a song is scrobbled and when scrobbles are submitted to the server. Setting the time to 0 seconds will submit scrobbles immediately.</string>
+       </property>
        <property name="text">
         <string>Submit scrobbles every</string>
        </property>
@@ -94,16 +100,6 @@
       </spacer>
      </item>
     </layout>
-   </item>
-   <item>
-    <widget class="QLabel" name="label_submit_info">
-     <property name="text">
-      <string>(This is the delay between when a song is scrobbled and when scrobbles are submitted to the server. Setting the time to 0 seconds will submit scrobbles immediately).</string>
-     </property>
-     <property name="wordWrap">
-      <bool>true</bool>
-     </property>
-    </widget>
    </item>
    <item>
     <widget class="QCheckBox" name="checkbox_albumartist">
@@ -180,6 +176,27 @@
         </property>
        </widget>
       </item>
+      <item row="5" column="1">
+       <widget class="QCheckBox" name="checkbox_source_somafm">
+        <property name="text">
+         <string>SomaFM</string>
+        </property>
+       </widget>
+      </item>
+      <item row="6" column="1">
+       <widget class="QCheckBox" name="checkbox_source_radioparadise">
+        <property name="text">
+         <string>Radio Paradise</string>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="1">
+       <widget class="QCheckBox" name="checkbox_source_spotify">
+        <property name="text">
+         <string>Spotify</string>
+        </property>
+       </widget>
+      </item>
       <item row="4" column="0">
        <widget class="QCheckBox" name="checkbox_source_cdda">
         <property name="text">
@@ -187,24 +204,10 @@
         </property>
        </widget>
       </item>
-      <item row="4" column="1">
-       <widget class="QCheckBox" name="checkbox_source_somafm">
-        <property name="text">
-         <string>SomaFM</string>
-        </property>
-       </widget>
-      </item>
       <item row="5" column="0">
        <widget class="QCheckBox" name="checkbox_source_stream">
         <property name="text">
          <string>Stream</string>
-        </property>
-       </widget>
-      </item>
-      <item row="5" column="1">
-       <widget class="QCheckBox" name="checkbox_source_radioparadise">
-        <property name="text">
-         <string>Radio Paradise</string>
         </property>
        </widget>
       </item>
@@ -426,6 +429,7 @@
   <tabstop>spinbox_submit</tabstop>
   <tabstop>checkbox_albumartist</tabstop>
   <tabstop>checkbox_show_error_dialog</tabstop>
+  <tabstop>checkbox_strip_remastered</tabstop>
   <tabstop>checkbox_source_collection</tabstop>
   <tabstop>checkbox_source_local</tabstop>
   <tabstop>checkbox_source_device</tabstop>
@@ -435,6 +439,7 @@
   <tabstop>checkbox_source_subsonic</tabstop>
   <tabstop>checkbox_source_tidal</tabstop>
   <tabstop>checkbox_source_qobuz</tabstop>
+  <tabstop>checkbox_source_spotify</tabstop>
   <tabstop>checkbox_source_somafm</tabstop>
   <tabstop>checkbox_source_radioparadise</tabstop>
   <tabstop>checkbox_lastfm_enable</tabstop>

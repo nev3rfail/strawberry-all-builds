@@ -33,8 +33,8 @@ Resources:
 The program is free software, released under GPL. If you like this program and can make use of it, consider sponsoring or donating to help fund the project.
 There are currently 4 options for sponsoring:
 
-1. [GitHub](https://github.com/sponsors/jonaski)
-2. [Patreon](https://www.patreon.com/jonaskvinge)
+1. [Patreon](https://www.patreon.com/jonaskvinge)
+2. [GitHub](https://github.com/sponsors/jonaski)
 3. [Ko-fi](https://ko-fi.com/jonaskvinge)
 4. [PayPal](https://paypal.me/jonaskvinge)
 
@@ -75,14 +75,13 @@ To build Strawberry from source you need the following installed on your system 
 * [pkg-config](https://www.freedesktop.org/wiki/Software/pkg-config/) or [pkgconf](https://github.com/pkgconf/pkgconf)
 * [Boost](https://www.boost.org/)
 * [GLib](https://developer.gnome.org/glib/)
-* [Qt 6.4.0 or higher with components Core, Gui, Widgets, Concurrent, Network and Sql](https://www.qt.io/)
+* [Qt 6.4.0 or higher with components Core, Concurrent, Gui, Widgets, Network, Sql and D-Bus](https://www.qt.io/)
 * [SQLite 3.9 or newer](https://www.sqlite.org)
-* [Protobuf](https://developers.google.com/protocol-buffers/)
 * [ALSA (Required on Linux)](https://www.alsa-project.org/)
-* [D-Bus (Required on Linux)](https://www.freedesktop.org/wiki/Software/dbus/)
-* [GStreamer](https://gstreamer.freedesktop.org/) or [VLC](https://www.videolan.org)
-* [TagLib 1.11.1 or higher](https://www.taglib.org/) or [TagParser](https://github.com/Martchus/tagparser)
+* [GStreamer](https://gstreamer.freedesktop.org/)
+* [TagLib 1.12 or higher](https://www.taglib.org/)
 * [ICU](https://unicode-org.github.io/icu/)
+* [KDSingleApplication](https://github.com/KDAB/KDSingleApplication)
 
 Optional dependencies:
 

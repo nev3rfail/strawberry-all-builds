@@ -21,7 +21,7 @@
 
 #include <QApplication>
 #include <QGuiApplication>
-#include <QVector>
+#include <QList>
 #include <QByteArray>
 #include <QKeySequence>
 #include <QFlags>
@@ -35,7 +35,7 @@
 #include <xcb/xcb.h>
 #include <xcb/xproto.h>
 
-const QVector<quint32> GlobalShortcut::mask_modifiers_ = QVector<quint32>() << 0 << Mod2Mask << LockMask << (Mod2Mask | LockMask);
+const QList<quint32> GlobalShortcut::mask_modifiers_ = QList<quint32>() << 0 << Mod2Mask << LockMask << (Mod2Mask | LockMask);
 
 namespace {
 
@@ -91,7 +91,10 @@ int GlobalShortcut::nativeKeycode(const Qt::Key qt_keycode) {
 
 }
 
-int GlobalShortcut::nativeKeycode2(const Qt::Key) { return 0; }
+int GlobalShortcut::nativeKeycode2(const Qt::Key qt_keycode) {
+  Q_UNUSED(qt_keycode)
+  return 0;
+}
 
 bool GlobalShortcut::registerShortcut(const int native_key, const int native_mods) {
 

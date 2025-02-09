@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2013-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2013-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,33 +26,24 @@
 #include <QVariant>
 #include <QString>
 
-#include "core/shared_ptr.h"
-#include "core/application.h"
-#include "core/player.h"
-#include "engine/enginebase.h"
+#include "includes/shared_ptr.h"
 #include "dialogs/errordialog.h"
 #include "settingspage.h"
 
 class SettingsDialog;
 class Ui_BackendSettingsPage;
+class Player;
+class DeviceFinders;
 
 class BackendSettingsPage : public SettingsPage {
   Q_OBJECT
 
  public:
-  explicit BackendSettingsPage(SettingsDialog *dialog, QWidget *parent = nullptr);
+  explicit BackendSettingsPage(SettingsDialog *dialog, const SharedPtr<Player> player, const SharedPtr<DeviceFinders> device_finders, QWidget *parent = nullptr);
   ~BackendSettingsPage() override;
-
-  static const char *kSettingsGroup;
-  static const qint64 kDefaultBufferDuration;
-  static const double kDefaultBufferLowWatermark;
-  static const double kDefaultBufferHighWatermark;
 
   void Load() override;
   void Save() override;
-  void Cancel() override;
-
-  SharedPtr<EngineBase> engine() const { return dialog()->app()->player()->engine(); }
 
 #ifdef HAVE_ALSA
   enum class ALSAPluginType {
@@ -63,15 +54,12 @@ class BackendSettingsPage : public SettingsPage {
 #endif
 
  private Q_SLOTS:
-  void EngineChanged(const int index);
   void OutputChanged(const int index);
   void DeviceSelectionChanged(const int index);
   void DeviceStringChanged();
   void RgPreampChanged(const int value);
   void RgFallbackGainChanged(const int value);
-#ifdef HAVE_GSTREAMER
   void EbuR128TargetLevelChanged(const int value);
-#endif
   void radiobutton_alsa_hw_clicked(const bool checked);
   void radiobutton_alsa_plughw_clicked(const bool checked);
   void radiobutton_alsa_pcm_clicked(const bool checked);
@@ -79,10 +67,6 @@ class BackendSettingsPage : public SettingsPage {
   void BufferDefaults();
 
  private:
-
-  bool EngineInitialized();
-
-  void Load_Engine(const EngineBase::Type enginetype);
   void Load_Output(QString output, QVariant device);
   void Load_Device(const QString &output, const QVariant &device);
 #ifdef HAVE_ALSA
@@ -92,11 +76,12 @@ class BackendSettingsPage : public SettingsPage {
 
  private:
   Ui_BackendSettingsPage *ui_;
+  const SharedPtr<Player> player_;
+  const SharedPtr<DeviceFinders> device_finders_;
+
   bool configloaded_;
-  bool engineloaded_;
   ErrorDialog errordialog_;
 
-  EngineBase::Type enginetype_current_;
   QString output_current_;
   QVariant device_current_;
 };

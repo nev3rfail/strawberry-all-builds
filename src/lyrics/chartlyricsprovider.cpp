@@ -30,21 +30,21 @@
 #include <QNetworkReply>
 #include <QXmlStreamReader>
 
+#include "includes/shared_ptr.h"
 #include "core/logging.h"
-#include "core/shared_ptr.h"
 #include "core/networkaccessmanager.h"
 #include "utilities/strutils.h"
 #include "lyricssearchrequest.h"
 #include "lyricssearchresult.h"
 #include "chartlyricsprovider.h"
 
-using namespace Qt::StringLiterals;
+using namespace Qt::Literals::StringLiterals;
 
 namespace {
 constexpr char kUrlSearch[] = "http://api.chartlyrics.com/apiv1.asmx/SearchLyricDirect";
 }
 
-ChartLyricsProvider::ChartLyricsProvider(SharedPtr<NetworkAccessManager> network, QObject *parent) : LyricsProvider(QStringLiteral("ChartLyrics"), false, false, network, parent) {}
+ChartLyricsProvider::ChartLyricsProvider(const SharedPtr<NetworkAccessManager> network, QObject *parent) : LyricsProvider(u"ChartLyrics"_s, false, false, network, parent) {}
 
 ChartLyricsProvider::~ChartLyricsProvider() {
 
@@ -62,8 +62,8 @@ void ChartLyricsProvider::StartSearch(const int id, const LyricsSearchRequest &r
   Q_ASSERT(QThread::currentThread() != qApp->thread());
 
   QUrlQuery url_query;
-  url_query.addQueryItem(QStringLiteral("artist"), QString::fromUtf8(QUrl::toPercentEncoding(request.artist)));
-  url_query.addQueryItem(QStringLiteral("song"), QString::fromUtf8(QUrl::toPercentEncoding(request.title)));
+  url_query.addQueryItem(u"artist"_s, QString::fromUtf8(QUrl::toPercentEncoding(request.artist)));
+  url_query.addQueryItem(u"song"_s, QString::fromUtf8(QUrl::toPercentEncoding(request.title)));
 
   QUrl url(QString::fromUtf8(kUrlSearch));
   url.setQuery(url_query);

@@ -43,46 +43,18 @@
 #include <QSettings>
 
 #include "appearancesettingspage.h"
-#include "utilities/colorutils.h"
+#include "constants/appearancesettings.h"
+#include "constants/filefilterconstants.h"
 #include "core/iconloader.h"
 #include "core/stylehelper.h"
 #include "core/settings.h"
-#include "covermanager/albumcoverchoicecontroller.h"
+#include "widgets/fancytabwidget.h"
 #include "settingspage.h"
 #include "settingsdialog.h"
 #include "ui_appearancesettingspage.h"
 
-const char *AppearanceSettingsPage::kSettingsGroup = "Appearance";
-
-const char *AppearanceSettingsPage::kStyle = "style";
-const char *AppearanceSettingsPage::kSystemThemeIcons = "system_icons";
-
-const char *AppearanceSettingsPage::kBackgroundImageType = "background_image_type";
-const char *AppearanceSettingsPage::kBackgroundImageFilename = "background_image_file";
-const char *AppearanceSettingsPage::kBackgroundImagePosition = "background_image_position";
-const char *AppearanceSettingsPage::kBackgroundImageStretch = "background_image_stretch";
-const char *AppearanceSettingsPage::kBackgroundImageDoNotCut = "background_image_do_not_cut";
-const char *AppearanceSettingsPage::kBackgroundImageKeepAspectRatio = "background_image_keep_aspect_ratio";
-const char *AppearanceSettingsPage::kBackgroundImageMaxSize = "background_image_max_size";
-
-const char *AppearanceSettingsPage::kBlurRadius = "blur_radius";
-const char *AppearanceSettingsPage::kOpacityLevel = "opacity_level";
-
-const int AppearanceSettingsPage::kDefaultBlurRadius = 0;
-const int AppearanceSettingsPage::kDefaultOpacityLevel = 40;
-
-const char *AppearanceSettingsPage::kTabBarSystemColor = "tab_system_color";
-const char *AppearanceSettingsPage::kTabBarGradient = "tab_gradient";
-const char *AppearanceSettingsPage::kTabBarColor = "tab_color";
-
-const char *AppearanceSettingsPage::kIconSizeTabbarSmallMode = "icon_size_tabbar_small_mode";
-const char *AppearanceSettingsPage::kIconSizeTabbarLargeMode = "icon_size_tabbar_large_mode";
-const char *AppearanceSettingsPage::kIconSizePlayControlButtons = "icon_size_play_control_buttons";
-const char *AppearanceSettingsPage::kIconSizePlaylistButtons = "icon_size_playlist_buttons";
-const char *AppearanceSettingsPage::kIconSizeLeftPanelButtons = "icon_size_left_panel_buttons";
-const char *AppearanceSettingsPage::kIconSizeConfigureButtons = "icon_size_configure_buttons";
-
-const char *AppearanceSettingsPage::kPlaylistPlayingSongColor = "playlist_playing_song_color";
+using namespace Qt::Literals::StringLiterals;
+using namespace AppearanceSettings;
 
 AppearanceSettingsPage::AppearanceSettingsPage(SettingsDialog *dialog, QWidget *parent)
     : SettingsPage(dialog, parent),
@@ -90,9 +62,9 @@ AppearanceSettingsPage::AppearanceSettingsPage(SettingsDialog *dialog, QWidget *
       background_image_type_(BackgroundImageType::Default) {
 
   ui_->setupUi(this);
-  setWindowIcon(IconLoader::Load(QStringLiteral("view-media-visualization"), true, 0, 32));
+  setWindowIcon(IconLoader::Load(u"view-media-visualization"_s, true, 0, 32));
 
-  ui_->combobox_style->addItem(QStringLiteral("default"), QStringLiteral("default"));
+  ui_->combobox_style->addItem(u"default"_s, u"default"_s);
   const QStringList styles = QStyleFactory::keys();
   for (const QString &style : styles) {
     ui_->combobox_style->addItem(style, style);
@@ -129,7 +101,7 @@ AppearanceSettingsPage::AppearanceSettingsPage(SettingsDialog *dialog, QWidget *
   QObject::connect(ui_->select_playlist_playing_song_color, &QPushButton::pressed, this, &AppearanceSettingsPage::PlaylistPlayingSongSelectColor);
   QObject::connect(ui_->playlist_playing_song_color_system, &QRadioButton::toggled, this, &AppearanceSettingsPage::PlaylistPlayingSongColorSystem);
 
-#if defined(Q_OS_MACOS) || defined(Q_OS_WIN)
+#if defined(Q_OS_MACOS) || defined(Q_OS_WIN32)
   ui_->checkbox_system_icons->hide();
 #endif
 
@@ -146,9 +118,9 @@ void AppearanceSettingsPage::Load() {
   Settings s;
   s.beginGroup(kSettingsGroup);
 
-  ComboBoxLoadFromSettings(s, ui_->combobox_style, QLatin1String(kStyle), QStringLiteral("default"));
+  ComboBoxLoadFromSettings(s, ui_->combobox_style, QLatin1String(kStyle), u"default"_s);
 
-#if !defined(Q_OS_MACOS) && !defined(Q_OS_WIN)
+#if !defined(Q_OS_MACOS) && !defined(Q_OS_WIN32)
   ui_->checkbox_system_icons->setChecked(s.value(kSystemThemeIcons, false).toBool());
 #endif
 
@@ -158,7 +130,7 @@ void AppearanceSettingsPage::Load() {
   ui_->tabbar_system_color->setChecked(tabbar_system_color);
   ui_->tabbar_custom_color->setChecked(!tabbar_system_color);
 
-  current_tabbar_bg_color_ = s.value(kTabBarColor, DefaultTabbarBgColor()).value<QColor>();
+  current_tabbar_bg_color_ = s.value(kTabBarColor, FancyTabWidget::DefaultTabbarBgColor()).value<QColor>();
 
   UpdateColorSelectorColor(ui_->select_tabbar_color, current_tabbar_bg_color_);
   TabBarSystemColor(ui_->tabbar_system_color->isChecked());
@@ -230,7 +202,7 @@ void AppearanceSettingsPage::Save() {
 
   s.setValue("style", ui_->combobox_style->currentText());
 
-#if defined(Q_OS_MACOS) || defined(Q_OS_WIN)
+#if defined(Q_OS_MACOS) || defined(Q_OS_WIN32)
   s.setValue(kSystemThemeIcons, false);
 #else
   s.setValue(kSystemThemeIcons, ui_->checkbox_system_icons->isChecked());
@@ -301,7 +273,7 @@ void AppearanceSettingsPage::UpdateColorSelectorColor(QWidget *color_selector, c
 
 void AppearanceSettingsPage::SelectBackgroundImage() {
 
-  QString selected_filename = QFileDialog::getOpenFileName(this, tr("Select background image"), background_image_filename_, tr(AlbumCoverChoiceController::kLoadImageFileFilter) + QStringLiteral(";;") + tr(AlbumCoverChoiceController::kAllFilesFilter));
+  QString selected_filename = QFileDialog::getOpenFileName(this, tr("Select background image"), background_image_filename_, tr(kLoadImageFileFilter) + u";;"_s + tr(kAllFilesFilterSpec));
   if (selected_filename.isEmpty()) return;
   background_image_filename_ = selected_filename;
   ui_->background_image_filename->setText(background_image_filename_);
@@ -319,7 +291,7 @@ void AppearanceSettingsPage::OpacityLevelChanged(int percent) {
 void AppearanceSettingsPage::TabBarSystemColor(bool checked) {
 
   if (checked) {
-    current_tabbar_bg_color_ = DefaultTabbarBgColor();
+    current_tabbar_bg_color_ = FancyTabWidget::DefaultTabbarBgColor();
     UpdateColorSelectorColor(ui_->select_tabbar_color, current_tabbar_bg_color_);
   }
   ui_->layout_tabbar_color->setEnabled(!checked);
@@ -368,12 +340,3 @@ void AppearanceSettingsPage::PlaylistPlayingSongSelectColor() {
 
 }
 
-QColor AppearanceSettingsPage::DefaultTabbarBgColor() {
-
-  QColor color = StyleHelper::highlightColor();
-  if (Utilities::IsColorDark(color)) {
-    color = color.lighter(130);
-  }
-  return color;
-
-}

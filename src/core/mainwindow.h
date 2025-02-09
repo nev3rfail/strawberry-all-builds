@@ -46,19 +46,18 @@
 #include <QSettings>
 #include <QtEvents>
 
-#include "scoped_ptr.h"
-#include "shared_ptr.h"
-#include "lazy.h"
-#include "platforminterface.h"
-#include "song.h"
-#include "tagreaderclient.h"
-#include "settings.h"
-#include "engine/enginebase.h"
+#include "includes/scoped_ptr.h"
+#include "includes/shared_ptr.h"
+#include "includes/lazy.h"
+#include "core/platforminterface.h"
+#include "core/song.h"
+#include "core/settings.h"
+#include "tagreader/tagreaderclient.h"
 #include "osd/osdbase.h"
 #include "playlist/playlist.h"
 #include "playlist/playlistitem.h"
 #include "settings/settingsdialog.h"
-#include "settings/behavioursettingspage.h"
+#include "constants/behavioursettings.h"
 #include "covermanager/albumcoverloaderresult.h"
 #include "covermanager/albumcoverimageresult.h"
 
@@ -71,7 +70,7 @@ class CollectionViewContainer;
 class CollectionFilter;
 class AlbumCoverChoiceController;
 class CommandlineOptions;
-#ifndef Q_OS_WIN
+#ifndef Q_OS_WIN32
 class DeviceViewContainer;
 #endif
 class EditTagDialog;
@@ -88,14 +87,12 @@ class SystemTrayIcon;
 class TagFetcher;
 #endif
 class TrackSelectionDialog;
-#ifdef HAVE_GSTREAMER
 class TranscodeDialog;
-#endif
 class Ui_MainWindow;
 class StreamingSongsView;
 class StreamingTabsView;
 class SmartPlaylistsViewContainer;
-#ifdef Q_OS_WIN
+#ifdef Q_OS_WIN32
 class Windows7ThumbBar;
 #endif
 class AddStreamDialog;
@@ -109,17 +106,15 @@ class MainWindow : public QMainWindow, public PlatformInterface {
   explicit MainWindow(Application *app, SharedPtr<SystemTrayIcon> tray_icon, OSDBase *osd, const CommandlineOptions &options, QWidget *parent = nullptr);
   ~MainWindow() override;
 
-  static const char *kSettingsGroup;
-  static const char *kAllFilesFilterSpec;
-
   void SetHiddenInTray(const bool hidden);
   void CommandlineOptionsReceived(const CommandlineOptions &options);
 
  protected:
   void showEvent(QShowEvent *e) override;
+  void hideEvent(QHideEvent *e) override;
   void closeEvent(QCloseEvent *e) override;
   void keyPressEvent(QKeyEvent *e) override;
-#ifdef Q_OS_WIN
+#ifdef Q_OS_WIN32
   bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
 #endif
 
@@ -138,7 +133,6 @@ class MainWindow : public QMainWindow, public PlatformInterface {
  private Q_SLOTS:
   void FilePathChanged(const QString &path);
 
-  void EngineChanged(const EngineBase::Type enginetype);
   void MediaStopped();
   void MediaPaused();
   void MediaPlaying();
@@ -203,7 +197,9 @@ class MainWindow : public QMainWindow, public PlatformInterface {
 
   void TaskCountChanged(const int count);
 
-  void ShowCollectionConfig();
+  void OpenCollectionSettingsDialog();
+  void OpenServiceSettingsDialog(const Song::Source source);
+
   void ReloadSettings();
   void ReloadAllSettings();
   void RefreshStyleSheet();
@@ -217,7 +213,7 @@ class MainWindow : public QMainWindow, public PlatformInterface {
 
   void PlayingWidgetPositionChanged(const bool above_status_bar);
 
-  void SongSaveComplete(TagReaderReply *reply, const QPersistentModelIndex &idx);
+  void SongSaveComplete(TagReaderReplyPtr reply, const QPersistentModelIndex &idx);
 
   void ShowCoverManager();
   void ShowEqualizer();
@@ -238,7 +234,7 @@ class MainWindow : public QMainWindow, public PlatformInterface {
   void Exit();
   void DoExit();
 
-  void HandleNotificationPreview(const OSDBase::Behaviour type, const QString &line1, const QString &line2);
+  void HandleNotificationPreview(const OSDSettings::Type type, const QString &line1, const QString &line2);
 
   void ShowConsole();
 
@@ -275,8 +271,8 @@ class MainWindow : public QMainWindow, public PlatformInterface {
 
   void SaveSettings();
 
-  static void ApplyAddBehaviour(const BehaviourSettingsPage::AddBehaviour b, MimeData *mimedata);
-  void ApplyPlayBehaviour(const BehaviourSettingsPage::PlayBehaviour b, MimeData *mimedata) const;
+  static void ApplyAddBehaviour(const BehaviourSettings::AddBehaviour b, MimeData *mimedata);
+  void ApplyPlayBehaviour(const BehaviourSettings::PlayBehaviour b, MimeData *mimedata) const;
 
   void CheckFullRescanRevisions();
 
@@ -293,7 +289,7 @@ class MainWindow : public QMainWindow, public PlatformInterface {
 
  private:
   Ui_MainWindow *ui_;
-#ifdef Q_OS_WIN
+#ifdef Q_OS_WIN32
   Windows7ThumbBar *thumbbar_;
 #endif
 
@@ -310,7 +306,7 @@ class MainWindow : public QMainWindow, public PlatformInterface {
   ContextView *context_view_;
   CollectionViewContainer *collection_view_;
   FileView *file_view_;
-#ifndef Q_OS_WIN
+#ifndef Q_OS_WIN32
   DeviceViewContainer *device_view_;
 #endif
   PlaylistListContainer *playlist_list_;
@@ -321,9 +317,7 @@ class MainWindow : public QMainWindow, public PlatformInterface {
   Lazy<AlbumCoverManager> cover_manager_;
   SharedPtr<Equalizer> equalizer_;
   Lazy<OrganizeDialog> organize_dialog_;
-#ifdef HAVE_GSTREAMER
   Lazy<TranscodeDialog> transcode_dialog_;
-#endif
   Lazy<AddStreamDialog> add_stream_dialog_;
 
 #ifdef HAVE_MUSICBRAINZ
@@ -365,7 +359,7 @@ class MainWindow : public QMainWindow, public PlatformInterface {
   QAction *playlist_move_to_collection_;
   QAction *playlist_open_in_browser_;
   QAction *playlist_organize_;
-#ifndef Q_OS_WIN
+#ifndef Q_OS_WIN32
   QAction *playlist_copy_to_device_;
 #endif
   QAction *playlist_delete_;
@@ -388,15 +382,14 @@ class MainWindow : public QMainWindow, public PlatformInterface {
 #ifdef HAVE_DBUS
   bool taskbar_progress_;
 #endif
-  BehaviourSettingsPage::AddBehaviour doubleclick_addmode_;
-  BehaviourSettingsPage::PlayBehaviour doubleclick_playmode_;
-  BehaviourSettingsPage::PlaylistAddBehaviour doubleclick_playlist_addmode_;
-  BehaviourSettingsPage::PlayBehaviour menu_playmode_;
+  BehaviourSettings::AddBehaviour doubleclick_addmode_;
+  BehaviourSettings::PlayBehaviour doubleclick_playmode_;
+  BehaviourSettings::PlaylistAddBehaviour doubleclick_playlist_addmode_;
+  BehaviourSettings::PlayBehaviour menu_playmode_;
 
   bool initialized_;
   bool was_maximized_;
   bool was_minimized_;
-  bool hidden_;
 
   Song song_;
   Song song_playing_;
@@ -404,7 +397,6 @@ class MainWindow : public QMainWindow, public PlatformInterface {
   bool exit_;
   int exit_count_;
   bool delete_files_;
-  bool ignore_close_;
 
 };
 

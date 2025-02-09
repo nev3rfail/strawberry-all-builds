@@ -41,15 +41,15 @@
 #include <QJsonObject>
 #include <QJsonValue>
 
+#include "includes/shared_ptr.h"
 #include "core/logging.h"
-#include "core/shared_ptr.h"
 #include "core/networkaccessmanager.h"
 #include "core/networktimeouts.h"
-#include "utilities/timeconstants.h"
+#include "constants/timeconstants.h"
 
 #include "acoustidclient.h"
 
-using namespace Qt::StringLiterals;
+using namespace Qt::Literals::StringLiterals;
 
 namespace {
 constexpr char kClientId[] = "0qjUoxbowg";
@@ -75,11 +75,11 @@ void AcoustidClient::Start(const int id, const QString &fingerprint, int duratio
   using Param = QPair<QString, QString>;
   using ParamList = QList<Param>;
 
-  const ParamList params = ParamList() << Param(QStringLiteral("format"), QStringLiteral("json"))
-                                       << Param(QStringLiteral("client"), QLatin1String(kClientId))
-                                       << Param(QStringLiteral("duration"), QString::number(duration_msec / kMsecPerSec))
-                                       << Param(QStringLiteral("meta"), QStringLiteral("recordingids+sources"))
-                                       << Param(QStringLiteral("fingerprint"), fingerprint);
+  const ParamList params = ParamList() << Param(u"format"_s, u"json"_s)
+                                       << Param(u"client"_s, QLatin1String(kClientId))
+                                       << Param(u"duration"_s, QString::number(duration_msec / kMsecPerSec))
+                                       << Param(u"meta"_s, u"recordingids+sources"_s)
+                                       << Param(u"fingerprint"_s, fingerprint);
 
   QUrlQuery url_query;
   url_query.setQueryItems(params);

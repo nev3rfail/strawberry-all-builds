@@ -48,9 +48,8 @@ class TranscodeDialog : public QDialog {
   explicit TranscodeDialog(QMainWindow *mainwindow, QWidget *parent = nullptr);
   ~TranscodeDialog() override;
 
-  static const char *kSettingsGroup;
-
   void SetFilenames(const QStringList &filenames);
+  void SetImportFilenames(const QStringList &filenames, const QString &import_dir);
 
  protected:
   void showEvent(QShowEvent *e) override;
@@ -64,7 +63,7 @@ class TranscodeDialog : public QDialog {
   void UpdateStatusText();
   void UpdateProgress();
   static QString TrimPath(const QString &path);
-  QString GetOutputFileName(const QString &input, const TranscoderPreset &preset) const;
+  QString GetOutputFileName(const QString &input, const QString &input_import_dir, const TranscoderPreset &preset) const;
 
  private Q_SLOTS:
   void Add();

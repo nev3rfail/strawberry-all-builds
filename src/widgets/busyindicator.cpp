@@ -27,6 +27,8 @@
 
 #include "busyindicator.h"
 
+using namespace Qt::Literals::StringLiterals;
+
 class QHideEvent;
 class QShowEvent;
 
@@ -48,7 +50,7 @@ BusyIndicator::BusyIndicator(QWidget *parent)
 
 void BusyIndicator::Init(const QString &text) {
 
-  movie_ = new QMovie(QStringLiteral(":/pictures/spinner.gif")),
+  movie_ = new QMovie(u":/pictures/spinner.gif"_s),
   label_ = new QLabel;
 
   QLabel *icon = new QLabel;
@@ -72,11 +74,13 @@ BusyIndicator::~BusyIndicator() {
   delete movie_;
 }
 
-void BusyIndicator::showEvent(QShowEvent*) {
+void BusyIndicator::showEvent(QShowEvent *e) {
+  Q_UNUSED(e)
   movie_->start();
 }
 
-void BusyIndicator::hideEvent(QHideEvent*) {
+void BusyIndicator::hideEvent(QHideEvent *e) {
+  Q_UNUSED(e)
   movie_->stop();
 }
 

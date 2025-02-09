@@ -23,9 +23,7 @@
 
 #include <algorithm>
 
-#ifdef HAVE_GSTREAMER
-#  include <gst/gst.h>
-#endif
+#include <gst/gst.h>
 
 #include <QObject>
 #include <QIODevice>
@@ -41,26 +39,24 @@
 #include <QUrl>
 #include <QEventLoop>
 
+#include "includes/shared_ptr.h"
 #include "core/logging.h"
-
-#include "shared_ptr.h"
-#include "signalchecker.h"
-#include "player.h"
-#include "song.h"
+#include "core/signalchecker.h"
+#include "core/song.h"
+#include "core/database.h"
+#include "core/urlhandlers.h"
 #include "songloader.h"
-#include "tagreaderclient.h"
-#include "database.h"
-#include "sqlrow.h"
-#include "engine/enginebase.h"
+#include "tagreader/tagreaderclient.h"
 #include "collection/collectionbackend.h"
-#include "collection/collectionquery.h"
 #include "playlistparsers/cueparser.h"
 #include "playlistparsers/parserbase.h"
 #include "playlistparsers/playlistparser.h"
 
-#if defined(HAVE_AUDIOCD) && defined(HAVE_GSTREAMER)
+#ifdef HAVE_AUDIOCD
 #  include "device/cddasongloader.h"
 #endif
+
+using namespace Qt::Literals::StringLiterals;
 
 namespace {
 constexpr int kDefaultTimeout = 5000;
@@ -68,32 +64,34 @@ constexpr int kDefaultTimeout = 5000;
 
 QSet<QString> SongLoader::sRawUriSchemes;
 
-SongLoader::SongLoader(SharedPtr<CollectionBackendInterface> collection_backend, const SharedPtr<Player> player, QObject *parent)
+SongLoader::SongLoader(const SharedPtr<UrlHandlers> url_handlers,
+                       const SharedPtr<CollectionBackendInterface> collection_backend,
+                       const SharedPtr<TagReaderClient> tagreader_client,
+                       QObject *parent)
     : QObject(parent),
-      player_(player),
+      url_handlers_(url_handlers),
       collection_backend_(collection_backend),
+      tagreader_client_(tagreader_client),
       timeout_timer_(new QTimer(this)),
-      playlist_parser_(new PlaylistParser(collection_backend, this)),
-      cue_parser_(new CueParser(collection_backend, this)),
+      playlist_parser_(new PlaylistParser(tagreader_client, collection_backend, this)),
+      cue_parser_(new CueParser(tagreader_client, collection_backend, this)),
       parser_(nullptr),
       state_(State::WaitingForType),
       timeout_(kDefaultTimeout),
-#ifdef HAVE_GSTREAMER
       fakesink_(nullptr),
       buffer_probe_cb_id_(0),
-#endif
       success_(false) {
 
   if (sRawUriSchemes.isEmpty()) {
-    sRawUriSchemes << QStringLiteral("udp")
-                   << QStringLiteral("mms")
-                   << QStringLiteral("mmsh")
-                   << QStringLiteral("mmst")
-                   << QStringLiteral("mmsu")
-                   << QStringLiteral("rtsp")
-                   << QStringLiteral("rtspu")
-                   << QStringLiteral("rtspt")
-                   << QStringLiteral("rtsph");
+    sRawUriSchemes << u"udp"_s
+                   << u"mms"_s
+                   << u"mmsh"_s
+                   << u"mmst"_s
+                   << u"mmsu"_s
+                   << u"rtsp"_s
+                   << u"rtspu"_s
+                   << u"rtspt"_s
+                   << u"rtsph"_s;
   }
 
   timeout_timer_->setSingleShot(true);
@@ -104,9 +102,7 @@ SongLoader::SongLoader(SharedPtr<CollectionBackendInterface> collection_backend,
 
 SongLoader::~SongLoader() {
 
-#ifdef HAVE_GSTREAMER
   CleanupPipeline();
-#endif
 
 }
 
@@ -120,28 +116,16 @@ SongLoader::Result SongLoader::Load(const QUrl &url) {
     return LoadLocal(url_.toLocalFile());
   }
 
-  if (sRawUriSchemes.contains(url_.scheme()) || player_->HandlerForUrl(url)) {
+  if (sRawUriSchemes.contains(url_.scheme()) || url_handlers_->CanHandle(url)) {
     // The URI scheme indicates that it can't possibly be a playlist,
     // or we have a custom handler for the URL, so add it as a raw stream.
     AddAsRawStream();
     return Result::Success;
   }
 
-  if (player_->engine()->type() == EngineBase::Type::GStreamer) {
-#ifdef HAVE_GSTREAMER
-    preload_func_ = std::bind(&SongLoader::LoadRemote, this);
-    return Result::BlockingLoadRequired;
-#else
-    errors_ << tr("You need GStreamer for this URL.");
-    return Result::Error;
-#endif
-  }
-  else {
-    errors_ << tr("You need GStreamer for this URL.");
-    return Result::Error;
-  }
+  preload_func_ = std::bind(&SongLoader::LoadRemote, this);
 
-  return Result::Success;
+  return Result::BlockingLoadRequired;
 
 }
 
@@ -176,7 +160,7 @@ SongLoader::Result SongLoader::LoadLocalPartial(const QString &filename) {
 
   // Assume it's just a normal file
   if (!Song::kRejectedExtensions.contains(fileinfo.suffix(), Qt::CaseInsensitive) &&
-      (TagReaderClient::Instance()->IsMediaFileBlocking(filename) ||
+      (tagreader_client_->IsMediaFileBlocking(filename) ||
        Song::kAcceptedExtensions.contains(fileinfo.suffix(), Qt::CaseInsensitive))) {
     Song song(Song::Source::LocalFile);
     song.InitFromFilePartial(filename, fileinfo);
@@ -193,25 +177,20 @@ SongLoader::Result SongLoader::LoadLocalPartial(const QString &filename) {
 
 SongLoader::Result SongLoader::LoadAudioCD() {
 
-#if defined(HAVE_AUDIOCD) && defined(HAVE_GSTREAMER)
-  if (player_->engine()->type() == EngineBase::Type::GStreamer) {
-    CddaSongLoader *cdda_song_loader = new CddaSongLoader(QUrl(), this);
-    QObject::connect(cdda_song_loader, &CddaSongLoader::SongsDurationLoaded, this, &SongLoader::AudioCDTracksLoadFinishedSlot);
-    QObject::connect(cdda_song_loader, &CddaSongLoader::SongsMetadataLoaded, this, &SongLoader::AudioCDTracksTagsLoaded);
-    cdda_song_loader->LoadSongs();
-    return Result::Success;
-  }
-  else {
-#endif
-    errors_ << tr("CD playback is only available with the GStreamer engine.");
-    return Result::Error;
-#if defined(HAVE_AUDIOCD) && defined(HAVE_GSTREAMER)
-  }
+#ifdef HAVE_AUDIOCD
+  CddaSongLoader *cdda_song_loader = new CddaSongLoader(QUrl(), this);
+  QObject::connect(cdda_song_loader, &CddaSongLoader::SongsDurationLoaded, this, &SongLoader::AudioCDTracksLoadFinishedSlot);
+  QObject::connect(cdda_song_loader, &CddaSongLoader::SongsMetadataLoaded, this, &SongLoader::AudioCDTracksTagsLoaded);
+  cdda_song_loader->LoadSongs();
+  return Result::Success;
+#else
+  errors_ << tr("Missing CDDA playback.");
+  return Result::Error;
 #endif
 
 }
 
-#if defined(HAVE_AUDIOCD) && defined(HAVE_GSTREAMER)
+#ifdef HAVE_AUDIOCD
 
 void SongLoader::AudioCDTracksLoadFinishedSlot(const SongList &songs, const QString &error) {
 
@@ -236,27 +215,22 @@ SongLoader::Result SongLoader::LoadLocal(const QString &filename) {
   qLog(Debug) << "Loading local file" << filename;
 
   // Search in the database.
-  QUrl url = QUrl::fromLocalFile(filename);
+  const QUrl url = QUrl::fromLocalFile(filename);
 
-  QMutexLocker l(collection_backend_->db()->Mutex());
-  QSqlDatabase db(collection_backend_->db()->Connect());
-
-  CollectionQuery query(db, collection_backend_->songs_table());
-  query.SetColumnSpec(QStringLiteral("%songs_table.ROWID, ") + Song::kColumnSpec);
-  query.AddWhere(QStringLiteral("url"), url.toEncoded());
-
-  if (query.Exec() && query.Next()) {
-    // We may have many results when the file has many sections
-    do {
-      Song song(Song::Source::Collection);
-      song.InitFromQuery(query, true);
-
-      if (song.is_valid()) {
-        songs_ << song;
-      }
-    } while (query.Next());
-
+  SongList songs = collection_backend_->GetSongsByUrl(url);
+  if (!songs.isEmpty()) {
+    songs_ = songs;
     return Result::Success;
+  }
+
+  const QString canonical_filepath = QFileInfo(filename).canonicalFilePath();
+  if (!canonical_filepath.isEmpty() && canonical_filepath != filename) {
+    const QUrl canonical_filepath_url = QUrl::fromLocalFile(canonical_filepath);
+    songs = collection_backend_->GetSongsByUrl(canonical_filepath_url);
+    if (!songs.isEmpty()) {
+      songs_ = songs;
+      return Result::Success;
+    }
   }
 
   // It's not in the database, load it asynchronously.
@@ -307,7 +281,7 @@ SongLoader::Result SongLoader::LoadLocalAsync(const QString &filename) {
     // It's a CUE - create virtual tracks
     QFile cue(matching_cue);
     if (cue.open(QIODevice::ReadOnly)) {
-      const SongList songs = cue_parser_->Load(&cue, matching_cue, QDir(filename.section(u'/', 0, -2)));
+      const SongList songs = cue_parser_->Load(&cue, matching_cue, QDir(filename.section(u'/', 0, -2))).songs;
       cue.close();
       for (const Song &song : songs) {
         if (song.is_valid()) songs_ << song;
@@ -322,7 +296,7 @@ SongLoader::Result SongLoader::LoadLocalAsync(const QString &filename) {
 
   // Assume it's just a normal file
   if (!Song::kRejectedExtensions.contains(fileinfo.suffix(), Qt::CaseInsensitive) &&
-      (TagReaderClient::Instance()->IsMediaFileBlocking(filename) ||
+      (tagreader_client_->IsMediaFileBlocking(filename) ||
        Song::kAcceptedExtensions.contains(fileinfo.suffix(), Qt::CaseInsensitive))) {
     Song song(Song::Source::LocalFile);
     song.InitFromFilePartial(filename, fileinfo);
@@ -362,9 +336,9 @@ void SongLoader::EffectiveSongLoad(Song *song) {
   else {
     // It's a normal media file
     const QString filename = song->url().toLocalFile();
-    const TagReaderClient::Result result = TagReaderClient::Instance()->ReadFileBlocking(filename, song);
+    const TagReaderResult result = tagreader_client_->ReadFileBlocking(filename, song);
     if (!result.success()) {
-      qLog(Error) << "Could not read file" << song->url() << result.error;
+      qLog(Error) << "Could not read file" << song->url() << result.error_string();
     }
   }
 
@@ -374,7 +348,9 @@ void SongLoader::LoadPlaylist(ParserBase *parser, const QString &filename) {
 
   QFile file(filename);
   if (file.open(QIODevice::ReadOnly)) {
-    songs_ = parser->Load(&file, filename, QFileInfo(filename).path());
+    const ParserBase::LoadResult result = parser->Load(&file, filename, QFileInfo(filename).path());
+    songs_ = result.songs;
+    playlist_name_ = result.playlist_name;
     file.close();
   }
   else {
@@ -436,13 +412,12 @@ void SongLoader::Timeout() {
 
 void SongLoader::StopTypefind() {
 
-#ifdef HAVE_GSTREAMER
   // Destroy the pipeline
   if (pipeline_) {
     gst_element_set_state(&*pipeline_, GST_STATE_NULL);
     CleanupPipeline();
   }
-#endif
+
   timeout_timer_->stop();
 
   if (success_ && parser_) {
@@ -451,7 +426,9 @@ void SongLoader::StopTypefind() {
     // Parse the playlist
     QBuffer buf(&buffer_);
     if (buf.open(QIODevice::ReadOnly)) {
-      songs_ = parser_->Load(&buf);
+      const ParserBase::LoadResult result = parser_->Load(&buf);
+      songs_ = result.songs;
+      playlist_name_ = result.playlist_name;
       buf.close();
     }
 
@@ -467,7 +444,6 @@ void SongLoader::StopTypefind() {
 
 }
 
-#ifdef HAVE_GSTREAMER
 SongLoader::Result SongLoader::LoadRemote() {
 
   qLog(Debug) << "Loading remote file" << url_;
@@ -542,10 +518,11 @@ SongLoader::Result SongLoader::LoadRemote() {
   return Result::Success;
 
 }
-#endif
 
-#ifdef HAVE_GSTREAMER
-void SongLoader::TypeFound(GstElement*, uint, GstCaps *caps, void *self) {
+void SongLoader::TypeFound(GstElement *typefind, const uint probability, GstCaps *caps, void *self) {
+
+  Q_UNUSED(typefind)
+  Q_UNUSED(probability)
 
   SongLoader *instance = static_cast<SongLoader*>(self);
 
@@ -554,7 +531,7 @@ void SongLoader::TypeFound(GstElement*, uint, GstCaps *caps, void *self) {
   // Check the mimetype
   instance->mime_type_ = QString::fromUtf8(gst_structure_get_name(gst_caps_get_structure(caps, 0)));
   qLog(Debug) << "Mime type is" << instance->mime_type_;
-  if (instance->mime_type_ == QStringLiteral("text/plain") || instance->mime_type_ == QStringLiteral("text/uri-list")) {
+  if (instance->mime_type_ == u"text/plain"_s || instance->mime_type_ == u"text/uri-list"_s) {
     // Yeah it might be a playlist, let's get some data and have a better look
     instance->state_ = State::WaitingForMagic;
     return;
@@ -564,10 +541,10 @@ void SongLoader::TypeFound(GstElement*, uint, GstCaps *caps, void *self) {
   instance->StopTypefindAsync(true);
 
 }
-#endif
 
-#ifdef HAVE_GSTREAMER
-GstPadProbeReturn SongLoader::DataReady(GstPad*, GstPadProbeInfo *info, gpointer self) {
+GstPadProbeReturn SongLoader::DataReady(GstPad *pad, GstPadProbeInfo *info, gpointer self) {
+
+  Q_UNUSED(pad)
 
   SongLoader *instance = reinterpret_cast<SongLoader*>(self);
 
@@ -590,11 +567,12 @@ GstPadProbeReturn SongLoader::DataReady(GstPad*, GstPadProbeInfo *info, gpointer
   }
 
   return GST_PAD_PROBE_OK;
-}
-#endif
 
-#ifdef HAVE_GSTREAMER
-gboolean SongLoader::BusWatchCallback(GstBus*, GstMessage *msg, gpointer self) {
+}
+
+gboolean SongLoader::BusWatchCallback(GstBus *bus, GstMessage *msg, gpointer self) {
+
+  Q_UNUSED(bus)
 
   SongLoader *instance = reinterpret_cast<SongLoader*>(self);
 
@@ -608,11 +586,12 @@ gboolean SongLoader::BusWatchCallback(GstBus*, GstMessage *msg, gpointer self) {
   }
 
   return TRUE;
-}
-#endif
 
-#ifdef HAVE_GSTREAMER
-GstBusSyncReply SongLoader::BusCallbackSync(GstBus*, GstMessage *msg, gpointer self) {
+}
+
+GstBusSyncReply SongLoader::BusCallbackSync(GstBus *bus, GstMessage *msg, gpointer self) {
+
+  Q_UNUSED(bus)
 
   SongLoader *instance = reinterpret_cast<SongLoader*>(self);
 
@@ -628,11 +607,11 @@ GstBusSyncReply SongLoader::BusCallbackSync(GstBus*, GstMessage *msg, gpointer s
     default:
       break;
   }
-  return GST_BUS_PASS;
-}
-#endif
 
-#ifdef HAVE_GSTREAMER
+  return GST_BUS_PASS;
+
+}
+
 void SongLoader::ErrorMessageReceived(GstMessage *msg) {
 
   if (state_ == State::Finished) return;
@@ -658,9 +637,7 @@ void SongLoader::ErrorMessageReceived(GstMessage *msg) {
   StopTypefindAsync(false);
 
 }
-#endif
 
-#ifdef HAVE_GSTREAMER
 void SongLoader::EndOfStreamReached() {
 
   qLog(Debug) << Q_FUNC_INFO << static_cast<int>(state_);
@@ -687,9 +664,7 @@ void SongLoader::EndOfStreamReached() {
   }
 
 }
-#endif
 
-#ifdef HAVE_GSTREAMER
 void SongLoader::MagicReady() {
 
   qLog(Debug) << Q_FUNC_INFO;
@@ -707,10 +682,10 @@ void SongLoader::MagicReady() {
 
   qLog(Debug) << "Magic says" << parser_->name();
 
-  if (parser_->name() == QStringLiteral("ASX/INI") && url_.scheme() == QStringLiteral("http")) {
+  if (parser_->name() == u"ASX/INI"_s && url_.scheme() == u"http"_s) {
     // This is actually a weird MS-WMSP stream. Changing the protocol to MMS from HTTP makes it playable.
     parser_ = nullptr;
-    url_.setScheme(QStringLiteral("mms"));
+    url_.setScheme(u"mms"_s);
     StopTypefindAsync(true);
   }
 
@@ -721,9 +696,7 @@ void SongLoader::MagicReady() {
   }
 
 }
-#endif
 
-#ifdef HAVE_GSTREAMER
 bool SongLoader::IsPipelinePlaying() {
 
   GstState state = GST_STATE_NULL;
@@ -737,9 +710,7 @@ bool SongLoader::IsPipelinePlaying() {
   return state == GST_STATE_PLAYING;
 
 }
-#endif
 
-#ifdef HAVE_GSTREAMER
 void SongLoader::StopTypefindAsync(const bool success) {
 
   state_ = State::Finished;
@@ -748,7 +719,6 @@ void SongLoader::StopTypefindAsync(const bool success) {
   QMetaObject::invokeMethod(this, &SongLoader::StopTypefind, Qt::QueuedConnection);
 
 }
-#endif
 
 void SongLoader::ScheduleTimeoutAsync() {
 
@@ -766,8 +736,6 @@ void SongLoader::ScheduleTimeout() {
   timeout_timer_->start(timeout_);
 
 }
-
-#ifdef HAVE_GSTREAMER
 
 void SongLoader::CleanupPipeline() {
 
@@ -800,4 +768,3 @@ void SongLoader::CleanupPipeline() {
 
 }
 
-#endif

@@ -32,15 +32,15 @@
 #include <QTextStream>
 #include <QStringConverter>
 
-#include "core/shared_ptr.h"
+#include "includes/shared_ptr.h"
+#include "constants/timeconstants.h"
 #include "core/logging.h"
-#include "utilities/timeconstants.h"
 #include "utilities/textencodingutils.h"
-#include "settings/playlistsettingspage.h"
+#include "constants/playlistsettings.h"
 #include "parserbase.h"
 #include "cueparser.h"
 
-using namespace Qt::StringLiterals;
+using namespace Qt::Literals::StringLiterals;
 
 class CollectionBackendInterface;
 
@@ -63,10 +63,10 @@ constexpr char kDate[] = "date";
 constexpr char kDisc[] = "discnumber";
 }  // namespace
 
-CueParser::CueParser(SharedPtr<CollectionBackendInterface> collection_backend, QObject *parent)
-    : ParserBase(collection_backend, parent) {}
+CueParser::CueParser(const SharedPtr<TagReaderClient> tagreader_client, const SharedPtr<CollectionBackendInterface> collection_backend, QObject *parent)
+    : ParserBase(tagreader_client, collection_backend, parent) {}
 
-SongList CueParser::Load(QIODevice *device, const QString &playlist_path, const QDir &dir, const bool collection_lookup) const {
+ParserBase::LoadResult CueParser::Load(QIODevice *device, const QString &playlist_path, const QDir &dir, const bool collection_lookup) const {
 
   SongList ret;
 
@@ -300,8 +300,8 @@ QStringList CueParser::SplitCueLine(const QString &line) {
   }
 
   // Let's remove the empty entries while we're at it
-  static const QRegularExpression regex_entry(QStringLiteral(".+"));
-  static const QRegularExpression regex_exclude(QStringLiteral("^\"\"$"));
+  static const QRegularExpression regex_entry(u".+"_s);
+  static const QRegularExpression regex_exclude(u"^\"\"$"_s);
   return re_match.capturedTexts().filter(regex_entry).mid(1, -1).replaceInStrings(regex_exclude, ""_L1);
 
 }
@@ -378,8 +378,9 @@ qint64 CueParser::IndexToMarker(const QString &index) {
 
 }
 
-void CueParser::Save(const SongList &songs, QIODevice *device, const QDir &dir, const PlaylistSettingsPage::PathType path_type) const {
+void CueParser::Save(const QString &playlist_name, const SongList &songs, QIODevice *device, const QDir &dir, const PlaylistSettings::PathType path_type) const {
 
+  Q_UNUSED(playlist_name);
   Q_UNUSED(songs);
   Q_UNUSED(device);
   Q_UNUSED(dir);
@@ -412,8 +413,8 @@ bool CueParser::TryMagic(const QByteArray &data) const {
 
 QString CueParser::FindCueFilename(const QString &filename) {
 
-  const QStringList cue_files = QStringList() << filename + QStringLiteral(".cue")
-                                              << filename.section(u'.', 0, -2) + QStringLiteral(".cue");
+  const QStringList cue_files = QStringList() << filename + u".cue"_s
+                                              << filename.section(u'.', 0, -2) + u".cue"_s;
 
   for (const QString &cuefile : cue_files) {
     if (QFileInfo::exists(cuefile)) return cuefile;

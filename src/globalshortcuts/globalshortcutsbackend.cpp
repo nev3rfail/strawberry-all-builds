@@ -25,6 +25,8 @@
 #include "globalshortcutsbackend.h"
 #include "globalshortcutsmanager.h"
 
+using namespace Qt::Literals::StringLiterals;
+
 GlobalShortcutsBackend::GlobalShortcutsBackend(GlobalShortcutsManager *manager, const Type type, QObject *parent)
     : QObject(parent),
       manager_(manager),
@@ -35,19 +37,15 @@ QString GlobalShortcutsBackend::name() const {
 
   switch (type_) {
     case Type::None:
-      return QStringLiteral("None");
-    case Type::KDE:
-      return QStringLiteral("KDE");
-    case Type::Gnome:
-      return QStringLiteral("Gnome");
-    case Type::Mate:
-      return QStringLiteral("Mate");
+      return u"None"_s;
+    case Type::KGlobalAccel:
+      return u"KGlobalAccel"_s;
     case Type::X11:
-      return QStringLiteral("X11");
+      return u"X11"_s;
     case Type::macOS:
-      return QStringLiteral("macOS");
+      return u"macOS"_s;
     case Type::Win:
-      return QStringLiteral("Windows");
+      return u"Windows"_s;
   }
 
   return QString();

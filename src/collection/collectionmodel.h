@@ -44,10 +44,9 @@
 #include <QNetworkDiskCache>
 #include <QQueue>
 
-#include "core/shared_ptr.h"
+#include "includes/shared_ptr.h"
 #include "core/simpletreemodel.h"
 #include "core/song.h"
-#include "core/sqlrow.h"
 #include "covermanager/albumcoverloaderoptions.h"
 #include "covermanager/albumcoverloaderresult.h"
 #include "collectionmodelupdate.h"
@@ -57,16 +56,16 @@
 class QTimer;
 class Settings;
 
-class Application;
 class CollectionBackend;
 class CollectionDirectoryModel;
 class CollectionFilter;
+class AlbumCoverLoader;
 
 class CollectionModel : public SimpleTreeModel<CollectionItem> {
   Q_OBJECT
 
  public:
-  explicit CollectionModel(SharedPtr<CollectionBackend> backend, Application *app, QObject *parent = nullptr);
+  explicit CollectionModel(const SharedPtr<CollectionBackend> backend, const SharedPtr<AlbumCoverLoader> albumcover_loader, QObject *parent = nullptr);
   ~CollectionModel() override;
 
   static const int kPrettyCoverSize;
@@ -156,7 +155,7 @@ class CollectionModel : public SimpleTreeModel<CollectionItem> {
   int total_artist_count() const { return total_artist_count_; }
   int total_album_count() const { return total_album_count_; }
 
-  quint64 icon_cache_disk_size() { return sIconCache->cacheSize(); }
+  quint64 icon_disk_cache_size() { return icon_disk_cache_->cacheSize(); }
 
   const CollectionModel::Grouping GetGroupBy() const { return options_current_.group_by; }
   void SetGroupBy(const CollectionModel::Grouping g, const std::optional<bool> separate_albums_by_grouping = std::optional<bool>());
@@ -184,7 +183,7 @@ class CollectionModel : public SimpleTreeModel<CollectionItem> {
   static QString PrettyYearAlbumDisc(const int year, const QString &album, const int disc);
   static QString PrettyDisc(const int disc);
   static QString PrettyFormat(const Song &song);
-  QString SortText(const GroupBy group_by, const int container_level, const Song &song, const bool sort_skips_articles);
+  QString SortText(const GroupBy group_by, const Song &song, const bool sort_skips_articles);
   static QString SortText(QString text);
   static QString SortTextForNumber(const int number);
   static QString SortTextForArtist(QString artist, const bool skip_articles);
@@ -195,11 +194,15 @@ class CollectionModel : public SimpleTreeModel<CollectionItem> {
   QString ContainerKey(const GroupBy group_by, const Song &song, bool &has_unique_album_identifier) const;
 
   // Get information about the collection
-  void GetChildSongs(CollectionItem *item, QList<QUrl> *urls, SongList *songs, QSet<int> *song_ids) const;
+  void GetChildSongs(CollectionItem *item, SongList &songs, QSet<int> &song_ids, QList<QUrl> &urls) const;
+  SongList GetChildSongs(const QList<CollectionItem*> items) const;
+  SongList GetChildSongs(CollectionItem *item) const;
   SongList GetChildSongs(const QModelIndex &idx) const;
   SongList GetChildSongs(const QModelIndexList &indexes) const;
 
-  bool CompareItems(const CollectionItem *a, const CollectionItem *b) const;
+  bool CompareItems(CollectionItem *a, CollectionItem *b) const;
+
+  bool HasParentAlbumGroupBy(CollectionItem *item) const;
 
  Q_SIGNALS:
   void TotalSongCountUpdated(const int count);
@@ -216,12 +219,14 @@ class CollectionModel : public SimpleTreeModel<CollectionItem> {
   void AddReAddOrUpdate(const SongList &songs);
   void RemoveSongs(const SongList &songs);
 
+  void ClearIconDiskCache();
+
  private:
   void Clear();
   void BeginReset();
   void EndReset();
 
-  QVariant data(const CollectionItem *item, const int role) const;
+  QVariant data(CollectionItem *item, const int role) const;
 
   void ScheduleUpdate(const CollectionModelUpdate::Type type, const SongList &songs);
   void ScheduleAddSongs(const SongList &songs);
@@ -236,7 +241,7 @@ class CollectionModel : public SimpleTreeModel<CollectionItem> {
   void CreateDividerItem(const QString &divider_key, const QString &display_text, CollectionItem *parent);
   CollectionItem *CreateContainerItem(const GroupBy group_by, const int container_level, const QString &container_key, const Song &song, CollectionItem *parent);
   void CreateSongItem(const Song &song, CollectionItem *parent);
-  void SetSongItemData(CollectionItem *item, const Song &song);
+  void SetSongItemData(CollectionItem *item, const Song &song) const;
   CollectionItem *CreateCompilationArtistNode(CollectionItem *parent);
 
   void LoadSongsFromSqlAsync();
@@ -247,9 +252,9 @@ class CollectionModel : public SimpleTreeModel<CollectionItem> {
 
   // Helpers
   static bool IsCompilationArtistNode(const CollectionItem *node) { return node == node->parent->compilation_artist_node_; }
-  QString AlbumIconPixmapCacheKey(const QModelIndex &idx) const;
+  QString AlbumIconPixmapCacheKey(const CollectionItem *item) const;
   static QUrl AlbumIconPixmapDiskCacheKey(const QString &cache_key);
-  QVariant AlbumIcon(const QModelIndex &idx);
+  QVariant AlbumIcon(CollectionItem *item);
   void ClearItemPixmapCache(CollectionItem *item);
   static qint64 MaximumCacheSize(Settings *s, const char *size_id, const char *size_unit_id, const qint64 cache_size_default);
 
@@ -265,15 +270,12 @@ class CollectionModel : public SimpleTreeModel<CollectionItem> {
   void TotalArtistCountUpdatedSlot(const int count);
   void TotalAlbumCountUpdatedSlot(const int count);
 
-  static void ClearDiskCache();
-
   void RowsInserted(const QModelIndex &parent, const int first, const int last);
   void RowsRemoved(const QModelIndex &parent, const int first, const int last);
 
  private:
-  static QNetworkDiskCache *sIconCache;
-  SharedPtr<CollectionBackend> backend_;
-  Application *app_;
+  const SharedPtr<CollectionBackend> backend_;
+  const SharedPtr<AlbumCoverLoader> albumcover_loader_;
   CollectionDirectoryModel *dir_model_;
   CollectionFilter *filter_;
   QTimer *timer_reload_;
@@ -308,6 +310,8 @@ class CollectionModel : public SimpleTreeModel<CollectionItem> {
   using ItemAndCacheKey = QPair<CollectionItem*, QString>;
   QMap<quint64, ItemAndCacheKey> pending_art_;
   QSet<QString> pending_cache_keys_;
+
+  QNetworkDiskCache *icon_disk_cache_;
 };
 
 Q_DECLARE_METATYPE(CollectionModel::Grouping)

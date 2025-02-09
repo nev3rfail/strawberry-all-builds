@@ -32,20 +32,26 @@
 #include <QStringList>
 #include <QUrl>
 
-#include "core/shared_ptr.h"
+#include "includes/shared_ptr.h"
 #include "core/song.h"
-#include "settings/playlistsettingspage.h"
-
-using namespace Qt::Literals::StringLiterals;
+#include "constants/playlistsettings.h"
 
 class QIODevice;
 class CollectionBackendInterface;
+class TagReaderClient;
 
 class ParserBase : public QObject {
   Q_OBJECT
 
  public:
-  explicit ParserBase(SharedPtr<CollectionBackendInterface> collection_backend, QObject *parent = nullptr);
+  explicit ParserBase(const SharedPtr<TagReaderClient> tagreader_client, const SharedPtr<CollectionBackendInterface> collection_backend, QObject *parent = nullptr);
+
+  class LoadResult {
+   public:
+    LoadResult(const SongList &_songs = SongList(), const QString &_playlist_name = QString()) : songs(_songs), playlist_name(_playlist_name) {}
+    SongList songs;
+    QString playlist_name;
+  };
 
   virtual QString name() const = 0;
   virtual QStringList file_extensions() const = 0;
@@ -60,8 +66,8 @@ class ParserBase : public QObject {
   // This method might not return all the songs found in the playlist.
   // Any playlist parser may decide to leave out some entries if it finds them incomplete or invalid.
   // This means that the final resulting SongList should be considered valid (at least from the parser's point of view).
-  virtual SongList Load(QIODevice *device, const QString &playlist_path = ""_L1, const QDir &dir = QDir(), const bool collection_lookup = true) const = 0;
-  virtual void Save(const SongList &songs, QIODevice *device, const QDir &dir = QDir(), const PlaylistSettingsPage::PathType path_type = PlaylistSettingsPage::PathType::Automatic) const = 0;
+  virtual LoadResult Load(QIODevice *device, const QString &playlist_path = QLatin1String(""), const QDir &dir = QDir(), const bool collection_lookup = true) const = 0;
+  virtual void Save(const QString &playlist_name, const SongList &songs, QIODevice *device, const QDir &dir = QDir(), const PlaylistSettings::PathType path_type = PlaylistSettings::PathType::Automatic) const = 0;
 
  Q_SIGNALS:
   void Error(const QString &error) const;
@@ -75,10 +81,11 @@ class ParserBase : public QObject {
 
   // If the URL is a file:// URL then returns its path, absolute or relative to the directory depending on the path_type option.
   // Otherwise, returns the URL as is. This function should always be used when saving a playlist.
-  static QString URLOrFilename(const QUrl &url, const QDir &dir, const PlaylistSettingsPage::PathType path_type);
+  static QString URLOrFilename(const QUrl &url, const QDir &dir, const PlaylistSettings::PathType path_type);
 
  private:
-  SharedPtr<CollectionBackendInterface> collection_backend_;
+  const SharedPtr<TagReaderClient> tagreader_client_;
+  const SharedPtr<CollectionBackendInterface> collection_backend_;
 };
 
 #endif  // PARSERBASE_H

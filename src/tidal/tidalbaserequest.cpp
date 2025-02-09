@@ -34,15 +34,15 @@
 #include <QJsonArray>
 #include <QJsonValue>
 
+#include "includes/shared_ptr.h"
 #include "core/logging.h"
-#include "core/shared_ptr.h"
 #include "core/networkaccessmanager.h"
 #include "tidalservice.h"
 #include "tidalbaserequest.h"
 
-using namespace Qt::StringLiterals;
+using namespace Qt::Literals::StringLiterals;
 
-TidalBaseRequest::TidalBaseRequest(TidalService *service, SharedPtr<NetworkAccessManager> network, QObject *parent)
+TidalBaseRequest::TidalBaseRequest(TidalService *service, const SharedPtr<NetworkAccessManager> network, QObject *parent)
     : QObject(parent),
       service_(service),
       network_(network) {}
@@ -50,7 +50,7 @@ TidalBaseRequest::TidalBaseRequest(TidalService *service, SharedPtr<NetworkAcces
 QNetworkReply *TidalBaseRequest::CreateRequest(const QString &ressource_name, const ParamList &params_provided) {
 
   const ParamList params = ParamList() << params_provided
-                                       << Param(QStringLiteral("countryCode"), country_code());
+                                       << Param(u"countryCode"_s, country_code());
 
   QUrlQuery url_query;
   for (const Param &param : params) {
@@ -61,9 +61,10 @@ QNetworkReply *TidalBaseRequest::CreateRequest(const QString &ressource_name, co
   url.setQuery(url_query);
   QNetworkRequest req(url);
   req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
-  req.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/x-www-form-urlencoded"));
-  if (oauth() && !access_token().isEmpty()) req.setRawHeader("authorization", "Bearer " + access_token().toUtf8());
-  else if (!session_id().isEmpty()) req.setRawHeader("X-Tidal-SessionId", session_id().toUtf8());
+  req.setHeader(QNetworkRequest::ContentTypeHeader, u"application/x-www-form-urlencoded"_s);
+  if (!token_type().isEmpty() && !access_token().isEmpty()) {
+    req.setRawHeader("Authorization", token_type().toUtf8() + " " + access_token().toUtf8());
+  }
 
   QNetworkReply *reply = network_->get(req);
   QObject::connect(reply, &QNetworkReply::sslErrors, this, &TidalBaseRequest::HandleSSLErrors);
@@ -82,7 +83,7 @@ void TidalBaseRequest::HandleSSLErrors(const QList<QSslError> &ssl_errors) {
 
 }
 
-QByteArray TidalBaseRequest::GetReplyData(QNetworkReply *reply, const bool send_login) {
+QByteArray TidalBaseRequest::GetReplyData(QNetworkReply *reply) {
 
   QByteArray data;
 
@@ -121,24 +122,8 @@ QByteArray TidalBaseRequest::GetReplyData(QNetworkReply *reply, const bool send_
       }
       if (status == 401 && sub_status == 6001) {  // User does not have a valid session
         service_->Logout();
-        if (!oauth() && send_login && login_attempts() < max_login_attempts() && !api_token().isEmpty() && !username().isEmpty() && !password().isEmpty()) {
-          qLog(Error) << "Tidal:" << error;
-          set_need_login();
-          if (login_sent()) {
-            qLog(Info) << "Tidal:" << "Waiting for login.";
-          }
-          else {
-            qLog(Info) << "Tidal:" << "Attempting to login.";
-            Q_EMIT RequestLogin();
-          }
-        }
-        else {
-          Error(error);
-        }
       }
-      else {
-        Error(error);
-      }
+      Error(error);
     }
     return QByteArray();
   }
@@ -153,23 +138,23 @@ QJsonObject TidalBaseRequest::ExtractJsonObj(const QByteArray &data) {
   QJsonDocument json_doc = QJsonDocument::fromJson(data, &json_error);
 
   if (json_error.error != QJsonParseError::NoError) {
-    Error(QStringLiteral("Reply from server missing Json data."), data);
+    Error(u"Reply from server missing Json data."_s, data);
     return QJsonObject();
   }
 
   if (json_doc.isEmpty()) {
-    Error(QStringLiteral("Received empty Json document."), data);
+    Error(u"Received empty Json document."_s, data);
     return QJsonObject();
   }
 
   if (!json_doc.isObject()) {
-    Error(QStringLiteral("Json document is not an object."), json_doc);
+    Error(u"Json document is not an object."_s, json_doc);
     return QJsonObject();
   }
 
   QJsonObject json_obj = json_doc.object();
   if (json_obj.isEmpty()) {
-    Error(QStringLiteral("Received empty Json object."), json_doc);
+    Error(u"Received empty Json object."_s, json_doc);
     return QJsonObject();
   }
 
@@ -188,7 +173,7 @@ QJsonValue TidalBaseRequest::ExtractItems(const QByteArray &data) {
 QJsonValue TidalBaseRequest::ExtractItems(const QJsonObject &json_obj) {
 
   if (!json_obj.contains("items"_L1)) {
-    Error(QStringLiteral("Json reply is missing items."), json_obj);
+    Error(u"Json reply is missing items."_s, json_obj);
     return QJsonArray();
   }
   QJsonValue json_items = json_obj["items"_L1];

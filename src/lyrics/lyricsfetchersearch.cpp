@@ -26,14 +26,14 @@
 #include <QList>
 
 #include "core/logging.h"
-#include "core/shared_ptr.h"
+#include "includes/shared_ptr.h"
 #include "lyricsfetchersearch.h"
 #include "lyricssearchrequest.h"
 #include "lyricssearchresult.h"
 #include "lyricsprovider.h"
 #include "lyricsproviders.h"
 
-using namespace Qt::StringLiterals;
+using namespace Qt::Literals::StringLiterals;
 
 namespace {
 constexpr int kSearchTimeoutMs = 3000;

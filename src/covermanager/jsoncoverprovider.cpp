@@ -25,14 +25,15 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 
-#include "core/shared_ptr.h"
-#include "core/application.h"
+#include "includes/shared_ptr.h"
 #include "core/networkaccessmanager.h"
 #include "coverprovider.h"
 #include "jsoncoverprovider.h"
 
-JsonCoverProvider::JsonCoverProvider(const QString &name, const bool enabled, const bool authentication_required, const float quality, const bool batch, const bool allow_missing_album, Application *app, SharedPtr<NetworkAccessManager> network, QObject *parent)
-    : CoverProvider(name, enabled, authentication_required, quality, batch, allow_missing_album, app, network, parent) {}
+using namespace Qt::Literals::StringLiterals;
+
+JsonCoverProvider::JsonCoverProvider(const QString &name, const bool enabled, const bool authentication_required, const float quality, const bool batch, const bool allow_missing_album, const SharedPtr<NetworkAccessManager> network, QObject *parent)
+    : CoverProvider(name, enabled, authentication_required, quality, batch, allow_missing_album, network, parent) {}
 
 QJsonObject JsonCoverProvider::ExtractJsonObj(const QByteArray &data) {
 
@@ -45,18 +46,18 @@ QJsonObject JsonCoverProvider::ExtractJsonObj(const QByteArray &data) {
   }
 
   if (json_doc.isEmpty()) {
-    Error(QStringLiteral("Received empty Json document."), data);
+    Error(u"Received empty Json document."_s, data);
     return QJsonObject();
   }
 
   if (!json_doc.isObject()) {
-    Error(QStringLiteral("Json document is not an object."), json_doc);
+    Error(u"Json document is not an object."_s, json_doc);
     return QJsonObject();
   }
 
   QJsonObject json_obj = json_doc.object();
   if (json_obj.isEmpty()) {
-    Error(QStringLiteral("Received empty Json object."), json_doc);
+    Error(u"Received empty Json object."_s, json_doc);
     return QJsonObject();
   }
 

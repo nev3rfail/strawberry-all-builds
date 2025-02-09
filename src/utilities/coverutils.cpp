@@ -23,15 +23,15 @@
 #include <QUrl>
 #include <QFileInfo>
 #include <QDir>
-#include <QStandardPaths>
 #include <QCryptographicHash>
 
-#include "filenameconstants.h"
+#include "constants/filenameconstants.h"
+#include "core/logging.h"
+#include "core/standardpaths.h"
 #include "transliterate.h"
 #include "coverutils.h"
-#include "core/logging.h"
 
-using namespace Qt::StringLiterals;
+using namespace Qt::Literals::StringLiterals;
 
 QByteArray CoverUtils::Sha1CoverHash(const QString &artist, const QString &album) {
 
@@ -85,7 +85,7 @@ QString CoverUtils::CoverFilePath(const CoverOptions &options, const Song::Sourc
   QDir dir;
   if (!QFileInfo::exists(path) && !dir.mkpath(path)) {
     qLog(Error) << "Unable to create directory" << path;
-    path = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+    path = StandardPaths::WritableLocation(StandardPaths::StandardLocation::TempLocation);
   }
 
   QString filename;
@@ -97,8 +97,8 @@ QString CoverUtils::CoverFilePath(const CoverOptions &options, const Song::Sourc
     filename.remove(QRegularExpression(QLatin1String(kInvalidFatCharactersRegex), QRegularExpression::CaseInsensitiveOption)).remove(u'/').remove(u'\\');
     if (options.cover_lowercase) filename = filename.toLower();
     if (options.cover_replace_spaces) {
-      static const QRegularExpression regex_whitespaces(QStringLiteral("\\s"));
-      filename.replace(regex_whitespaces, QStringLiteral("-"));
+      static const QRegularExpression regex_whitespaces(u"\\s"_s);
+      filename.replace(regex_whitespaces, u"-"_s);
     }
     if (!extension.isEmpty()) {
       filename.append(u'.');

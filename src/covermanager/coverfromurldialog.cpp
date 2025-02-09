@@ -31,7 +31,7 @@
 #include <QNetworkRequest>
 #include <QUrl>
 
-#include "core/shared_ptr.h"
+#include "includes/shared_ptr.h"
 #include "core/networkaccessmanager.h"
 #include "utilities/mimeutils.h"
 #include "widgets/busyindicator.h"
@@ -39,7 +39,7 @@
 #include "coverfromurldialog.h"
 #include "ui_coverfromurldialog.h"
 
-using namespace Qt::StringLiterals;
+using namespace Qt::Literals::StringLiterals;
 
 CoverFromURLDialog::CoverFromURLDialog(SharedPtr<NetworkAccessManager> network, QWidget *parent)
     : QDialog(parent),

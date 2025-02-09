@@ -41,23 +41,23 @@
 #include <QJsonArray>
 #include <QJsonValue>
 
-#include "core/shared_ptr.h"
+#include "includes/shared_ptr.h"
 #include "core/networkaccessmanager.h"
 #include "core/song.h"
 #include "core/logging.h"
 #include "core/settings.h"
 #include "core/localredirectserver.h"
-#include "utilities/timeconstants.h"
-#include "settings/scrobblersettingspage.h"
+#include "constants/timeconstants.h"
+#include "constants/scrobblersettings.h"
 
-#include "scrobblersettings.h"
+#include "scrobblersettingsservice.h"
 #include "scrobblerservice.h"
 #include "scrobblercache.h"
 #include "scrobblercacheitem.h"
 #include "scrobblemetadata.h"
 #include "listenbrainzscrobbler.h"
 
-using namespace Qt::StringLiterals;
+using namespace Qt::Literals::StringLiterals;
 
 const char *ListenBrainzScrobbler::kName = "ListenBrainz";
 const char *ListenBrainzScrobbler::kSettingsGroup = "ListenBrainz";
@@ -73,7 +73,7 @@ constexpr char kCacheFile[] = "listenbrainzscrobbler.cache";
 constexpr int kScrobblesPerRequest = 10;
 }  // namespace
 
-ListenBrainzScrobbler::ListenBrainzScrobbler(SharedPtr<ScrobblerSettings> settings, SharedPtr<NetworkAccessManager> network, QObject *parent)
+ListenBrainzScrobbler::ListenBrainzScrobbler(const SharedPtr<ScrobblerSettingsService> settings, const SharedPtr<NetworkAccessManager> network, QObject *parent)
     : ScrobblerService(QLatin1String(kName), settings, parent),
       network_(network),
       cache_(new ScrobblerCache(QLatin1String(kCacheFile), this)),
@@ -119,12 +119,12 @@ void ListenBrainzScrobbler::ReloadSettings() {
 
   Settings s;
   s.beginGroup(kSettingsGroup);
-  enabled_ = s.value("enabled", false).toBool();
-  user_token_ = s.value("user_token").toString();
+  enabled_ = s.value(ScrobblerSettings::kEnabled, false).toBool();
+  user_token_ = s.value(ScrobblerSettings::kUserToken).toString();
   s.endGroup();
 
-  s.beginGroup(ScrobblerSettingsPage::kSettingsGroup);
-  prefer_albumartist_ = s.value("albumartist", false).toBool();
+  s.beginGroup(ScrobblerSettings::kSettingsGroup);
+  prefer_albumartist_ = s.value(ScrobblerSettings::kAlbumArtist, false).toBool();
   s.endGroup();
 
 }
@@ -184,10 +184,10 @@ void ListenBrainzScrobbler::Authenticate() {
   redirect_url.setPort(server_->url().port());
 
   QUrlQuery url_query;
-  url_query.addQueryItem(QStringLiteral("response_type"), QStringLiteral("code"));
-  url_query.addQueryItem(QStringLiteral("client_id"), QString::fromLatin1(QByteArray::fromBase64(kClientIDB64)));
-  url_query.addQueryItem(QStringLiteral("redirect_uri"), redirect_url.toString());
-  url_query.addQueryItem(QStringLiteral("scope"), QStringLiteral("profile;email;tag;rating;collection;submit_isrc;submit_barcode"));
+  url_query.addQueryItem(u"response_type"_s, u"code"_s);
+  url_query.addQueryItem(u"client_id"_s, QString::fromLatin1(QByteArray::fromBase64(kClientIDB64)));
+  url_query.addQueryItem(u"redirect_uri"_s, redirect_url.toString());
+  url_query.addQueryItem(u"scope"_s, u"profile;email;tag;rating;collection;submit_isrc;submit_barcode"_s);
   QUrl url(QString::fromLatin1(kOAuthAuthorizeUrl));
   url.setQuery(url_query);
 
@@ -208,11 +208,11 @@ void ListenBrainzScrobbler::RedirectArrived() {
     QUrl url = server_->request_url();
     if (url.isValid()) {
       QUrlQuery url_query(url);
-      if (url_query.hasQueryItem(QStringLiteral("error"))) {
-        AuthError(QUrlQuery(url).queryItemValue(QStringLiteral("error")));
+      if (url_query.hasQueryItem(u"error"_s)) {
+        AuthError(QUrlQuery(url).queryItemValue(u"error"_s));
       }
-      else if (url_query.hasQueryItem(QStringLiteral("code"))) {
-        RequestAccessToken(url, url_query.queryItemValue(QStringLiteral("code")));
+      else if (url_query.hasQueryItem(u"code"_s)) {
+        RequestAccessToken(url, url_query.queryItemValue(u"code"_s));
       }
       else {
         AuthError(tr("Redirect missing token code!"));
@@ -237,11 +237,17 @@ ListenBrainzScrobbler::ReplyResult ListenBrainzScrobbler::GetJsonObject(QNetwork
   ReplyResult reply_error_type = ReplyResult::ServerError;
 
   if (reply->error() == QNetworkReply::NoError) {
-    if (reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() == 200) {
-      reply_error_type = ReplyResult::Success;
+    if (reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).isValid()) {
+      const int http_status_code = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+      if (http_status_code == 200) {
+        reply_error_type = ReplyResult::Success;
+      }
+      else {
+        error_description = QStringLiteral("Received HTTP code %1").arg(http_status_code);
+      }
     }
     else {
-      error_description = QStringLiteral("Received HTTP code %1").arg(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt());
+      error_description = u"Missing HTTP status code"_s;
     }
   }
   else {
@@ -275,17 +281,17 @@ void ListenBrainzScrobbler::RequestAccessToken(const QUrl &redirect_url, const Q
 
   refresh_login_timer_.stop();
 
-  ParamList params = ParamList() << Param(QStringLiteral("client_id"), QString::fromLatin1(QByteArray::fromBase64(kClientIDB64)))
-                                 << Param(QStringLiteral("client_secret"), QString::fromLatin1(QByteArray::fromBase64(kClientSecretB64)));
+  ParamList params = ParamList() << Param(u"client_id"_s, QString::fromLatin1(QByteArray::fromBase64(kClientIDB64)))
+                                 << Param(u"client_secret"_s, QString::fromLatin1(QByteArray::fromBase64(kClientSecretB64)));
 
   if (!code.isEmpty() && !redirect_url.isEmpty()) {
-    params << Param(QStringLiteral("grant_type"), QStringLiteral("authorization_code"));
-    params << Param(QStringLiteral("code"), code);
-    params << Param(QStringLiteral("redirect_uri"), redirect_url.toString());
+    params << Param(u"grant_type"_s, u"authorization_code"_s);
+    params << Param(u"code"_s, code);
+    params << Param(u"redirect_uri"_s, redirect_url.toString());
   }
   else if (!refresh_token_.isEmpty() && enabled_) {
-    params << Param(QStringLiteral("grant_type"), QStringLiteral("refresh_token"));
-    params << Param(QStringLiteral("refresh_token"), refresh_token_);
+    params << Param(u"grant_type"_s, u"refresh_token"_s);
+    params << Param(u"refresh_token"_s, refresh_token_);
   }
   else {
     return;
@@ -300,7 +306,7 @@ void ListenBrainzScrobbler::RequestAccessToken(const QUrl &redirect_url, const Q
 
   QNetworkRequest req(session_url);
   req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
-  req.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/x-www-form-urlencoded"));
+  req.setHeader(QNetworkRequest::ContentTypeHeader, u"application/x-www-form-urlencoded"_s);
   QByteArray query = url_query.toString(QUrl::FullyEncoded).toUtf8();
   QNetworkReply *reply = network_->post(req, query);
   replies_ << reply;
@@ -323,7 +329,7 @@ void ListenBrainzScrobbler::AuthenticateReplyFinished(QNetworkReply *reply) {
   }
 
   if (!json_obj.contains("access_token"_L1) || !json_obj.contains("expires_in"_L1) || !json_obj.contains("token_type"_L1)) {
-    AuthError(QStringLiteral("Json access_token, expires_in or token_type is missing."));
+    AuthError(u"Json access_token, expires_in or token_type is missing."_s);
     return;
   }
 
@@ -361,7 +367,7 @@ QNetworkReply *ListenBrainzScrobbler::CreateRequest(const QUrl &url, const QJson
 
   QNetworkRequest req(url);
   req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
-  req.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+  req.setHeader(QNetworkRequest::ContentTypeHeader, u"application/json"_s);
   req.setRawHeader("Authorization", QStringLiteral("Token %1").arg(user_token_).toUtf8());
   QNetworkReply *reply = network_->post(req, json_doc.toJson());
   replies_ << reply;
@@ -493,7 +499,7 @@ void ListenBrainzScrobbler::UpdateNowPlayingRequestFinished(QNetworkReply *reply
   }
 
   if (!json_obj.contains("status"_L1)) {
-    Error(QStringLiteral("Now playing request is missing status from server."));
+    Error(u"Now playing request is missing status from server."_s);
     return;
   }
 
@@ -632,7 +638,10 @@ void ListenBrainzScrobbler::Love() {
 
   if (!song_playing_.is_valid() || !song_playing_.is_metadata_good()) return;
 
-  if (!authenticated()) settings_->ShowConfig();
+  if (!authenticated()) {
+    Q_EMIT OpenSettingsDialog();
+    return;
+  }
 
   if (song_playing_.musicbrainz_recording_id().isEmpty()) {
     Error(tr("Missing MusicBrainz recording ID for %1 %2 %3").arg(song_playing_.artist(), song_playing_.album(), song_playing_.title()));

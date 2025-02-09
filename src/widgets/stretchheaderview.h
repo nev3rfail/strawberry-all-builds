@@ -27,7 +27,6 @@
 #include <QHeaderView>
 #include <QList>
 #include <QString>
-#include <QVector>
 
 class QWidget;
 class QAbstractItemModel;
@@ -48,7 +47,7 @@ class StretchHeaderView : public QHeaderView {
 
   // Serialises the proportional and actual column widths.
   // Use these instead of QHeaderView::restoreState and QHeaderView::saveState to persist the proportional values directly and avoid floating point errors over time.
-  bool RestoreState(const QByteArray &sdata);
+  bool RestoreState(const QByteArray &state);
   QByteArray SaveState() const;
   QByteArray ResetState();
 
@@ -92,7 +91,7 @@ class StretchHeaderView : public QHeaderView {
 
  private:
   bool stretch_enabled_;
-  QVector<ColumnWidthType> column_widths_;
+  QList<ColumnWidthType> column_widths_;
 
   bool in_mouse_move_event_;
   int forced_resize_logical_index_;

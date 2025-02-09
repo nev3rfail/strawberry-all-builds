@@ -17,6 +17,8 @@
  *
  */
 
+#define _SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING
+
 #include <utility>
 #include <functional>
 #include <string>
@@ -43,7 +45,7 @@ using namespace ABI::Windows::Devices::Enumeration;
 
 using namespace Qt::Literals::StringLiterals;
 
-UWPDeviceFinder::UWPDeviceFinder() : DeviceFinder(QStringLiteral("uwpdevice"), { QStringLiteral("wasapi2sink") }) {}
+UWPDeviceFinder::UWPDeviceFinder() : DeviceFinder(u"uwpdevice"_s, { u"wasapi2sink"_s }) {}
 
 namespace {
 

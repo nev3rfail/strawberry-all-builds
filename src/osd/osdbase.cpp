@@ -23,6 +23,7 @@
 
 #include <QObject>
 #include <QCoreApplication>
+#include <QGuiApplication>
 #include <QString>
 #include <QStringList>
 #include <QImage>
@@ -31,30 +32,25 @@
 #include "osdbase.h"
 #include "osdpretty.h"
 
-#include "core/shared_ptr.h"
-#include "core/application.h"
+#include "includes/shared_ptr.h"
 #include "core/logging.h"
 #include "core/settings.h"
 #ifdef Q_OS_MACOS
-#  include "core/macsystemtrayicon.h"
+#  include "systemtrayicon/macsystemtrayicon.h"
 #else
-#  include "core/qtsystemtrayicon.h"
+#  include "systemtrayicon/qtsystemtrayicon.h"
 #endif
 #include "utilities/strutils.h"
-#include "covermanager/currentalbumcoverloader.h"
+#include "constants/notificationssettings.h"
 
-using namespace Qt::StringLiterals;
+using namespace Qt::Literals::StringLiterals;
 
-const char *OSDBase::kSettingsGroup = "OSD";
-
-OSDBase::OSDBase(SharedPtr<SystemTrayIcon> tray_icon, Application *app, QObject *parent)
+OSDBase::OSDBase(const SharedPtr<SystemTrayIcon> tray_icon, QObject *parent)
     : QObject(parent),
-      app_(app),
       tray_icon_(tray_icon),
       pretty_popup_(new OSDPretty(OSDPretty::Mode::Popup)),
-      app_name_(QCoreApplication::applicationName()),
       timeout_msec_(5000),
-      behaviour_(Behaviour::Native),
+      type_(OSDSettings::Type::Native),
       show_on_volume_change_(false),
       show_art_(true),
       show_on_play_mode_change_(true),
@@ -63,13 +59,7 @@ OSDBase::OSDBase(SharedPtr<SystemTrayIcon> tray_icon, Application *app, QObject 
       use_custom_text_(false),
       force_show_next_(false),
       ignore_next_stopped_(false),
-      playing_(false) {
-
-  QObject::connect(&*app_->current_albumcover_loader(), &CurrentAlbumCoverLoader::ThumbnailLoaded, this, &OSDBase::AlbumCoverLoaded);
-
-  app_name_[0] = app_name_[0].toUpper();
-
-}
+      playing_(false) {}
 
 OSDBase::~OSDBase() {
   delete pretty_popup_;
@@ -78,9 +68,9 @@ OSDBase::~OSDBase() {
 void OSDBase::ReloadSettings() {
 
   Settings s;
-  s.beginGroup(kSettingsGroup);
-  behaviour_ = static_cast<OSDBase::Behaviour>(s.value("Behaviour", static_cast<int>(Behaviour::Native)).toInt());
-  timeout_msec_ = s.value("Timeout", 5000).toInt();
+  s.beginGroup(OSDSettings::kSettingsGroup);
+  type_ = static_cast<OSDSettings::Type>(s.value(OSDSettings::kType, static_cast<int>(OSDSettings::Type::Native)).toInt());
+  timeout_msec_ = s.value(OSDSettings::kTimeout, 5000).toInt();
   show_on_volume_change_ = s.value("ShowOnVolumeChange", false).toBool();
   show_art_ = s.value("ShowArt", true).toBool();
   show_on_play_mode_change_ = s.value("ShowOnPlayModeChange", true).toBool();
@@ -91,19 +81,45 @@ void OSDBase::ReloadSettings() {
   custom_text2_ = s.value("CustomText2").toString();
   s.endGroup();
 
-#ifdef Q_OS_WIN32
-  if (!SupportsNativeNotifications() && !SupportsTrayPopups() && behaviour_ == Behaviour::Native) {
-#else
-  if (!SupportsNativeNotifications() && behaviour_ == Behaviour::Native) {
-#endif
-    behaviour_ = Behaviour::Pretty;
-  }
-
-  if (!SupportsTrayPopups() && behaviour_ == Behaviour::TrayPopup) {
-    behaviour_ = Behaviour::Disabled;
+  if (!IsTypeSupported(type_)) {
+    type_ = GetSupportedType();
   }
 
   ReloadPrettyOSDSettings();
+
+}
+
+OSDSettings::Type OSDBase::GetSupportedType() const {
+
+  if (SupportsNativeNotifications()) {
+    return OSDSettings::Type::Native;
+  }
+  if (SupportsOSDPretty()) {
+    return OSDSettings::Type::Pretty;
+  }
+  if (SupportsTrayPopups()) {
+    return OSDSettings::Type::TrayPopup;
+  }
+
+  return OSDSettings::Type::Disabled;
+
+}
+
+bool OSDBase::IsTypeSupported(const OSDSettings::Type type) const {
+
+  switch (type) {
+    case OSDSettings::Type::Native:
+      return SupportsNativeNotifications();
+    case OSDSettings::Type::TrayPopup:
+      return SupportsTrayPopups();
+    case OSDSettings::Type::Pretty:
+      return SupportsOSDPretty();
+      break;
+    case OSDSettings::Type::Disabled:
+      return true;
+  }
+
+  return false;
 
 }
 
@@ -160,12 +176,12 @@ void OSDBase::ShowPlaying(const Song &song, const QUrl &cover_url, const QImage 
     if (song.track() > 0) {
       message_parts << tr("track %1").arg(song.track());
     }
-    if (behaviour_ == Behaviour::Pretty) {
+    if (type_ == OSDSettings::Type::Pretty) {
       summary = summary.toHtmlEscaped();
       html_escaped = true;
     }
 #if defined(HAVE_DBUS) && !defined(Q_OS_MACOS)
-    else if (behaviour_ == Behaviour::Native) {
+    else if (type_ == OSDSettings::Type::Native) {
       html_escaped = true;
     }
 #endif
@@ -175,10 +191,10 @@ void OSDBase::ShowPlaying(const Song &song, const QUrl &cover_url, const QImage 
   if (html_escaped) message = message.toHtmlEscaped();
 
   if (show_art_) {
-    ShowMessage(summary, message, QStringLiteral("notification-audio-play"), image);
+    ShowMessage(summary, message, u"notification-audio-play"_s, image);
   }
   else {
-    ShowMessage(summary, message, QStringLiteral("notification-audio-play"), QImage());
+    ShowMessage(summary, message, u"notification-audio-play"_s, QImage());
   }
 
   // Reload the saved settings if they were changed for preview
@@ -206,7 +222,7 @@ void OSDBase::Paused() {
         summary.prepend(" - "_L1);
         summary.prepend(last_song_.artist());
       }
-      if (behaviour_ == Behaviour::Pretty) {
+      if (type_ == OSDSettings::Type::Pretty) {
         summary = summary.toHtmlEscaped();
       }
     }
@@ -251,7 +267,7 @@ void OSDBase::Stopped() {
       summary.prepend(" - "_L1);
       summary.prepend(last_song_.artist());
     }
-    if (behaviour_ == Behaviour::Pretty) {
+    if (type_ == OSDSettings::Type::Pretty) {
       summary = summary.toHtmlEscaped();
     }
   }
@@ -270,7 +286,7 @@ void OSDBase::Stopped() {
 }
 
 void OSDBase::StopAfterToggle(const bool stop) {
-  ShowMessage(app_name_, tr("Stop playing after track: %1").arg(stop ? tr("On") : tr("Off")));
+  ShowMessage(QCoreApplication::applicationName(), tr("Stop playing after track: %1").arg(stop ? tr("On") : tr("Off")));
 }
 
 void OSDBase::PlaylistFinished() {
@@ -278,7 +294,7 @@ void OSDBase::PlaylistFinished() {
   // We get a PlaylistFinished followed by a Stopped from the player
   ignore_next_stopped_ = true;
 
-  ShowMessage(app_name_, tr("Playlist finished"));
+  ShowMessage(QCoreApplication::applicationName(), tr("Playlist finished"));
 
 }
 
@@ -287,16 +303,16 @@ void OSDBase::VolumeChanged(const uint value) {
   if (!show_on_volume_change_) return;
 
   QString message = tr("Volume %1%").arg(value);
-  if (behaviour_ == Behaviour::Pretty) {
+  if (type_ == OSDSettings::Type::Pretty) {
     message = message.toHtmlEscaped();
   }
 #if defined(HAVE_DBUS) && !defined(Q_OS_MACOS)
-  else if (behaviour_ == Behaviour::Native) {
+  else if (type_ == OSDSettings::Type::Native) {
     message = message.toHtmlEscaped();
   }
 #endif
 
-  ShowMessage(app_name_, message);
+  ShowMessage(QCoreApplication::applicationName(), message);
 
 }
 
@@ -306,8 +322,8 @@ void OSDBase::ShowMessage(const QString &summary, const QString &message, const 
     pretty_popup_->ShowMessage(summary, message, image);
   }
   else {
-    switch (behaviour_) {
-      case Behaviour::Native:
+    switch (type_) {
+      case OSDSettings::Type::Native:
 #ifdef Q_OS_WIN32
         Q_UNUSED(icon)
         [[fallthrough]];
@@ -320,18 +336,18 @@ void OSDBase::ShowMessage(const QString &summary, const QString &message, const 
         }
         break;
 #endif
-      case Behaviour::TrayPopup:
+      case OSDSettings::Type::TrayPopup:
 #ifdef Q_OS_MACOS
         [[fallthrough]];
 #else
         if (tray_icon_) tray_icon_->ShowPopup(summary, message, timeout_msec_);
         break;
 #endif
-      case Behaviour::Disabled:
+      case OSDSettings::Type::Disabled:
         if (!force_show_next_) break;
         force_show_next_ = false;
       [[fallthrough]];
-      case Behaviour::Pretty:
+      case OSDSettings::Type::Pretty:
         pretty_popup_->ShowMessage(summary, message, image);
         break;
 
@@ -352,7 +368,7 @@ void OSDBase::ShuffleModeChanged(const PlaylistSequence::ShuffleMode mode) {
       case PlaylistSequence::ShuffleMode::InsideAlbum: current_mode = tr("Shuffle tracks in this album"); break;
       case PlaylistSequence::ShuffleMode::Albums:      current_mode = tr("Shuffle albums");  break;
     }
-    ShowMessage(app_name_, current_mode);
+    ShowMessage(QCoreApplication::applicationName(), current_mode);
   }
 
 }
@@ -369,7 +385,7 @@ void OSDBase::RepeatModeChanged(const PlaylistSequence::RepeatMode mode) {
       case PlaylistSequence::RepeatMode::OneByOne: current_mode = tr("Stop after every track"); break;
       case PlaylistSequence::RepeatMode::Intro:    current_mode = tr("Intro tracks"); break;
     }
-    ShowMessage(app_name_, current_mode);
+    ShowMessage(QCoreApplication::applicationName(), current_mode);
   }
 
 }
@@ -384,8 +400,8 @@ QString OSDBase::ReplaceMessage(const MessageType type, const QString &message, 
   QString newline = ""_L1;
 
   // We need different strings depending on notification type
-  switch (behaviour_) {
-    case Behaviour::Native:
+  switch (type_) {
+    case OSDSettings::Type::Native:
 #if defined(Q_OS_MACOS)
       html_escaped = false;
       newline = QLatin1String("\n");
@@ -411,13 +427,13 @@ QString OSDBase::ReplaceMessage(const MessageType type, const QString &message, 
       qLog(Debug) << "Native notifications are not supported on this OS.";
       break;
 #endif
-    case Behaviour::TrayPopup:
+    case OSDSettings::Type::TrayPopup:
       qLog(Debug) << "New line not supported by this notification type.";
       html_escaped = false;
       newline = ""_L1;
       break;
-    case Behaviour::Disabled:  // When notifications are disabled, we force the PrettyOSD
-    case Behaviour::Pretty:
+    case OSDSettings::Type::Disabled:  // When notifications are disabled, we force the PrettyOSD
+    case OSDSettings::Type::Pretty:
       html_escaped = true;
       newline = "<br />"_L1;
       break;
@@ -427,9 +443,9 @@ QString OSDBase::ReplaceMessage(const MessageType type, const QString &message, 
 
 }
 
-void OSDBase::ShowPreview(const Behaviour type, const QString &line1, const QString &line2, const Song &song) {
+void OSDBase::ShowPreview(const OSDSettings::Type type, const QString &line1, const QString &line2, const Song &song) {
 
-  behaviour_ = type;
+  type_ = type;
   custom_text1_ = line1;
   custom_text2_ = line2;
   if (!use_custom_text_) use_custom_text_ = true;
@@ -443,14 +459,31 @@ void OSDBase::SetPrettyOSDToggleMode(const bool toggle) {
   pretty_popup_->set_toggle_mode(toggle);
 }
 
-bool OSDBase::SupportsNativeNotifications() {
+bool OSDBase::SupportsNativeNotifications() const {
+
+#ifdef Q_OS_WIN32
+  return SupportsTrayPopups();
+#endif
+
   return false;
+
 }
 
-bool OSDBase::SupportsTrayPopups() {
+bool OSDBase::SupportsTrayPopups() const {
   return tray_icon_->IsSystemTrayAvailable();
 }
 
-void OSDBase::ShowMessageNative(const QString&, const QString&, const QString&, const QImage&) {
+bool OSDBase::SupportsOSDPretty() {
+  return QGuiApplication::platformName() != "wayland"_L1;
+}
+
+void OSDBase::ShowMessageNative(const QString &summary, const QString &message, const QString &icon, const QImage &image) {
+
+  Q_UNUSED(summary)
+  Q_UNUSED(message)
+  Q_UNUSED(icon)
+  Q_UNUSED(image)
+
   qLog(Warning) << "Native notifications are not supported on this OS.";
+
 }

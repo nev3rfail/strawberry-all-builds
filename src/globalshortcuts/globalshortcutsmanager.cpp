@@ -31,20 +31,20 @@
 #include <QShortcut>
 #include <QKeySequence>
 
+#include "core/logging.h"
+
 #include "globalshortcutsmanager.h"
 #include "globalshortcutsbackend.h"
 
-#if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS) && defined(HAVE_DBUS)
-#  include "globalshortcutsbackend-kde.h"
-#  include "globalshortcutsbackend-gnome.h"
-#  include "globalshortcutsbackend-mate.h"
+#ifdef HAVE_KGLOBALACCEL_GLOBALSHORTCUTS
+#include "globalshortcutsbackend-kglobalaccel.h"
 #endif
 
 #ifdef HAVE_X11_GLOBALSHORTCUTS
 #  include "globalshortcutsbackend-x11.h"
 #endif
 
-#ifdef Q_OS_WIN
+#ifdef Q_OS_WIN32
 #  include "globalshortcutsbackend-win.h"
 #endif
 
@@ -52,47 +52,47 @@
 #  include "globalshortcutsbackend-macos.h"
 #endif
 
-#include "settings/globalshortcutssettingspage.h"
+#include "constants/globalshortcutssettings.h"
+
+using namespace Qt::Literals::StringLiterals;
 
 GlobalShortcutsManager::GlobalShortcutsManager(QWidget *parent) : QWidget(parent) {
 
-  settings_.beginGroup(GlobalShortcutsSettingsPage::kSettingsGroup);
+  settings_.beginGroup(GlobalShortcutsSettings::kSettingsGroup);
 
   // Create actions
-  AddShortcut(QStringLiteral("play"), tr("Play"), std::bind(&GlobalShortcutsManager::Play, this));
-  AddShortcut(QStringLiteral("pause"), tr("Pause"), std::bind(&GlobalShortcutsManager::Pause, this));
-  AddShortcut(QStringLiteral("play_pause"), tr("Play/Pause"), std::bind(&GlobalShortcutsManager::PlayPause, this), QKeySequence(Qt::Key_MediaPlay));
-  AddShortcut(QStringLiteral("stop"), tr("Stop"), std::bind(&GlobalShortcutsManager::Stop, this), QKeySequence(Qt::Key_MediaStop));
-  AddShortcut(QStringLiteral("stop_after"), tr("Stop playing after current track"), std::bind(&GlobalShortcutsManager::StopAfter, this));
-  AddShortcut(QStringLiteral("next_track"), tr("Next track"), std::bind(&GlobalShortcutsManager::Next, this), QKeySequence(Qt::Key_MediaNext));
-  AddShortcut(QStringLiteral("prev_track"), tr("Previous track"), std::bind(&GlobalShortcutsManager::Previous, this), QKeySequence(Qt::Key_MediaPrevious));
-  AddShortcut(QStringLiteral("restart_or_prev_track"), tr("Restart or previous track"), std::bind(&GlobalShortcutsManager::RestartOrPrevious, this));
-  AddShortcut(QStringLiteral("inc_volume"), tr("Increase volume"), std::bind(&GlobalShortcutsManager::IncVolume, this));
-  AddShortcut(QStringLiteral("dec_volume"), tr("Decrease volume"), std::bind(&GlobalShortcutsManager::DecVolume, this));
-  AddShortcut(QStringLiteral("mute"), tr("Mute"), std::bind(&GlobalShortcutsManager::Mute, this));
-  AddShortcut(QStringLiteral("seek_forward"), tr("Seek forward"), std::bind(&GlobalShortcutsManager::SeekForward, this));
-  AddShortcut(QStringLiteral("seek_backward"), tr("Seek backward"), std::bind(&GlobalShortcutsManager::SeekBackward, this));
-  AddShortcut(QStringLiteral("show_hide"), tr("Show/Hide"), std::bind(&GlobalShortcutsManager::ShowHide, this));
-  AddShortcut(QStringLiteral("show_osd"), tr("Show OSD"), std::bind(&GlobalShortcutsManager::ShowOSD, this));
-  AddShortcut(QStringLiteral("toggle_pretty_osd"), tr("Toggle Pretty OSD"), std::bind(&GlobalShortcutsManager::TogglePrettyOSD, this));  // Toggling possible only for pretty OSD
-  AddShortcut(QStringLiteral("shuffle_mode"), tr("Change shuffle mode"), std::bind(&GlobalShortcutsManager::CycleShuffleMode, this));
-  AddShortcut(QStringLiteral("repeat_mode"), tr("Change repeat mode"), std::bind(&GlobalShortcutsManager::CycleRepeatMode, this));
-  AddShortcut(QStringLiteral("toggle_scrobbling"), tr("Enable/disable scrobbling"), std::bind(&GlobalShortcutsManager::ToggleScrobbling, this));
-  AddShortcut(QStringLiteral("love"), tr("Love"), std::bind(&GlobalShortcutsManager::Love, this));
+  AddShortcut(u"play"_s, tr("Play"), std::bind(&GlobalShortcutsManager::Play, this));
+  AddShortcut(u"pause"_s, tr("Pause"), std::bind(&GlobalShortcutsManager::Pause, this));
+  AddShortcut(u"play_pause"_s, tr("Play/Pause"), std::bind(&GlobalShortcutsManager::PlayPause, this), QKeySequence(Qt::Key_MediaPlay));
+  AddShortcut(u"stop"_s, tr("Stop"), std::bind(&GlobalShortcutsManager::Stop, this), QKeySequence(Qt::Key_MediaStop));
+  AddShortcut(u"stop_after"_s, tr("Stop playing after current track"), std::bind(&GlobalShortcutsManager::StopAfter, this));
+  AddShortcut(u"next_track"_s, tr("Next track"), std::bind(&GlobalShortcutsManager::Next, this), QKeySequence(Qt::Key_MediaNext));
+  AddShortcut(u"prev_track"_s, tr("Previous track"), std::bind(&GlobalShortcutsManager::Previous, this), QKeySequence(Qt::Key_MediaPrevious));
+  AddShortcut(u"restart_or_prev_track"_s, tr("Restart or previous track"), std::bind(&GlobalShortcutsManager::RestartOrPrevious, this));
+  AddShortcut(u"inc_volume"_s, tr("Increase volume"), std::bind(&GlobalShortcutsManager::IncVolume, this));
+  AddShortcut(u"dec_volume"_s, tr("Decrease volume"), std::bind(&GlobalShortcutsManager::DecVolume, this));
+  AddShortcut(u"mute"_s, tr("Mute"), std::bind(&GlobalShortcutsManager::Mute, this));
+  AddShortcut(u"seek_forward"_s, tr("Seek forward"), std::bind(&GlobalShortcutsManager::SeekForward, this));
+  AddShortcut(u"seek_backward"_s, tr("Seek backward"), std::bind(&GlobalShortcutsManager::SeekBackward, this));
+  AddShortcut(u"show_hide"_s, tr("Show/Hide"), std::bind(&GlobalShortcutsManager::ShowHide, this));
+  AddShortcut(u"show_osd"_s, tr("Show OSD"), std::bind(&GlobalShortcutsManager::ShowOSD, this));
+  AddShortcut(u"toggle_pretty_osd"_s, tr("Toggle Pretty OSD"), std::bind(&GlobalShortcutsManager::TogglePrettyOSD, this));  // Toggling possible only for pretty OSD
+  AddShortcut(u"shuffle_mode"_s, tr("Change shuffle mode"), std::bind(&GlobalShortcutsManager::CycleShuffleMode, this));
+  AddShortcut(u"repeat_mode"_s, tr("Change repeat mode"), std::bind(&GlobalShortcutsManager::CycleRepeatMode, this));
+  AddShortcut(u"toggle_scrobbling"_s, tr("Enable/disable scrobbling"), std::bind(&GlobalShortcutsManager::ToggleScrobbling, this));
+  AddShortcut(u"love"_s, tr("Love"), std::bind(&GlobalShortcutsManager::Love, this));
 
   // Create backends - these do the actual shortcut registration
 
-#if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS) && defined(HAVE_DBUS)
-  backends_ << new GlobalShortcutsBackendKDE(this, this);
-  backends_ << new GlobalShortcutsBackendGnome(this, this);
-  backends_ << new GlobalShortcutsBackendMate(this, this);
+#ifdef HAVE_KGLOBALACCEL_GLOBALSHORTCUTS
+  backends_ << new GlobalShortcutsBackendKGlobalAccel(this, this);
 #endif
 
 #ifdef Q_OS_MACOS
   backends_ << new GlobalShortcutsBackendMacOS(this, this);
 #endif
 
-#ifdef Q_OS_WIN
+#ifdef Q_OS_WIN32
   backends_ << new GlobalShortcutsBackendWin(this, this);
 #endif
 
@@ -112,24 +112,18 @@ void GlobalShortcutsManager::ReloadSettings() {
   backends_enabled_ << GlobalShortcutsBackend::Type::macOS;
 #endif
 
-#ifdef Q_OS_WIN
+#ifdef Q_OS_WIN32
   backends_enabled_ << GlobalShortcutsBackend::Type::Win;
 #endif
 
-#if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS) && defined(HAVE_DBUS)
-  if (settings_.value("use_kde", true).toBool()) {
-    backends_enabled_ << GlobalShortcutsBackend::Type::KDE;
-  }
-  if (settings_.value("use_gnome", true).toBool()) {
-    backends_enabled_ << GlobalShortcutsBackend::Type::Gnome;
-  }
-  if (settings_.value("use_mate", true).toBool()) {
-    backends_enabled_ << GlobalShortcutsBackend::Type::Mate;
+#ifdef HAVE_KGLOBALACCEL_GLOBALSHORTCUTS
+  if (settings_.value(GlobalShortcutsSettings::kUseKGlobalAccel, true).toBool()) {
+    backends_enabled_ << GlobalShortcutsBackend::Type::KGlobalAccel;
   }
 #endif
 
 #ifdef HAVE_X11_GLOBALSHORTCUTS
-  if (settings_.value("use_x11", false).toBool()) {
+  if (settings_.value(GlobalShortcutsSettings::kUseX11, false).toBool()) {
     backends_enabled_ << GlobalShortcutsBackend::Type::X11;
   }
 #endif
@@ -165,27 +159,15 @@ GlobalShortcutsManager::Shortcut GlobalShortcutsManager::AddShortcut(const QStri
 
 }
 
-#if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS) && defined(HAVE_DBUS)
+#ifdef HAVE_KGLOBALACCEL_GLOBALSHORTCUTS
 
-bool GlobalShortcutsManager::IsKdeAvailable() {
+bool GlobalShortcutsManager::IsKGlobalAccelAvailable() {
 
-  return GlobalShortcutsBackendKDE::IsKDEAvailable();
-
-}
-
-bool GlobalShortcutsManager::IsGnomeAvailable() {
-
-  return GlobalShortcutsBackendGnome::IsGnomeAvailable();
+  return GlobalShortcutsBackendKGlobalAccel::IsKGlobalAccelAvailable();
 
 }
 
-bool GlobalShortcutsManager::IsMateAvailable() {
-
-  return GlobalShortcutsBackendMate::IsMateAvailable();
-
-}
-
-#endif  // defined(Q_OS_UNIX) && !defined(Q_OS_MACOS) && defined(HAVE_DBUS)
+#endif
 
 #ifdef HAVE_X11_GLOBALSHORTCUTS
 
@@ -195,7 +177,7 @@ bool GlobalShortcutsManager::IsX11Available() {
 
 }
 
-#endif  // HAVE_X11_GLOBALSHORTCUTS
+#endif
 
 bool GlobalShortcutsManager::Register() {
 
@@ -229,7 +211,7 @@ bool GlobalShortcutsManager::IsMacAccessibilityEnabled() {
 
 }
 
-#endif  // Q_OS_MACOS
+#endif
 
 void GlobalShortcutsManager::ShowMacAccessibilityDialog() {
 

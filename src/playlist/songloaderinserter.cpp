@@ -28,27 +28,33 @@
 #include <QList>
 #include <QUrl>
 
+#include "includes/shared_ptr.h"
 #include "core/logging.h"
-#include "core/shared_ptr.h"
-#include "core/songloader.h"
+#include "core/urlhandlers.h"
 #include "core/taskmanager.h"
+#include "core/songloader.h"
 #include "playlist.h"
 #include "songloaderinserter.h"
 
-SongLoaderInserter::SongLoaderInserter(SharedPtr<TaskManager> task_manager, SharedPtr<CollectionBackendInterface> collection_backend, const SharedPtr<Player> player, QObject *parent)
+SongLoaderInserter::SongLoaderInserter(const SharedPtr<TaskManager> task_manager,
+                                       const SharedPtr<TagReaderClient> tagreader_client,
+                                       const SharedPtr<UrlHandlers> url_handlers,
+                                       const SharedPtr<CollectionBackendInterface> collection_backend,
+                                       QObject *parent)
     : QObject(parent),
       task_manager_(task_manager),
+      tagreader_client_(tagreader_client),
+      url_handlers_(url_handlers),
+      collection_backend_(collection_backend),
       destination_(nullptr),
       row_(-1),
       play_now_(true),
       enqueue_(false),
-      enqueue_next_(false),
-      collection_backend_(collection_backend),
-      player_(player) {}
+      enqueue_next_(false) {}
 
 SongLoaderInserter::~SongLoaderInserter() { qDeleteAll(pending_); }
 
-void SongLoaderInserter::Load(Playlist *destination, int row, bool play_now, bool enqueue, bool enqueue_next, const QList<QUrl> &urls) {
+void SongLoaderInserter::Load(Playlist *destination, const int row, const bool play_now, const bool enqueue, const bool enqueue_next, const QList<QUrl> &urls) {
 
   destination_ = destination;
   row_ = row;
@@ -61,17 +67,18 @@ void SongLoaderInserter::Load(Playlist *destination, int row, bool play_now, boo
   QObject::connect(this, &SongLoaderInserter::EffectiveLoadFinished, destination, &Playlist::UpdateItems);
 
   for (const QUrl &url : urls) {
-    SongLoader *loader = new SongLoader(collection_backend_, player_, this);
+    SongLoader *loader = new SongLoader(url_handlers_, collection_backend_, tagreader_client_, this);
 
-    SongLoader::Result ret = loader->Load(url);
+    const SongLoader::Result result = loader->Load(url);
 
-    if (ret == SongLoader::Result::BlockingLoadRequired) {
+    if (result == SongLoader::Result::BlockingLoadRequired) {
       pending_.append(loader);
       continue;
     }
 
-    if (ret == SongLoader::Result::Success) {
+    if (result == SongLoader::Result::Success) {
       songs_ << loader->songs();
+      playlist_name_ = loader->playlist_name();
     }
     else {
       const QStringList errors = loader->errors();
@@ -95,7 +102,7 @@ void SongLoaderInserter::Load(Playlist *destination, int row, bool play_now, boo
 // First, we add tracks (without metadata) into the playlist
 // In the meantime, MusicBrainz will be queried to get songs' metadata.
 // AudioCDTagsLoaded will be called next, and playlist's items will be updated.
-void SongLoaderInserter::LoadAudioCD(Playlist *destination, int row, bool play_now, bool enqueue, bool enqueue_next) {
+void SongLoaderInserter::LoadAudioCD(Playlist *destination, const int row, const bool play_now, const bool enqueue, const bool enqueue_next) {
 
   destination_ = destination;
   row_ = row;
@@ -103,12 +110,12 @@ void SongLoaderInserter::LoadAudioCD(Playlist *destination, int row, bool play_n
   enqueue_ = enqueue;
   enqueue_next_ = enqueue_next;
 
-  SongLoader *loader = new SongLoader(collection_backend_, player_, this);
+  SongLoader *loader = new SongLoader(url_handlers_, collection_backend_, tagreader_client_, this);
   QObject::connect(loader, &SongLoader::AudioCDTracksLoadFinished, this, [this, loader]() { AudioCDTracksLoadFinished(loader); });
   QObject::connect(loader, &SongLoader::LoadAudioCDFinished, this, &SongLoaderInserter::AudioCDTagsLoaded);
   qLog(Info) << "Loading audio CD...";
-  SongLoader::Result ret = loader->LoadAudioCD();
-  if (ret == SongLoader::Result::Error) {
+  const SongLoader::Result result = loader->LoadAudioCD();
+  if (result == SongLoader::Result::Error) {
     if (loader->errors().isEmpty())
       Q_EMIT Error(tr("Error while loading audio CD."));
     else {
@@ -160,7 +167,7 @@ void SongLoaderInserter::InsertSongs() {
 
   // Insert songs (that haven't been completely loaded) to allow user to see and play them while not loaded completely
   if (destination_) {
-    destination_->InsertSongsOrCollectionItems(songs_, row_, play_now_, enqueue_, enqueue_next_);
+    destination_->InsertSongsOrCollectionItems(songs_, playlist_name_, row_, play_now_, enqueue_, enqueue_next_);
   }
 
 }
@@ -174,10 +181,10 @@ void SongLoaderInserter::AsyncLoad() {
   bool first_loaded = false;
   for (int i = 0; i < pending_.count(); ++i) {
     SongLoader *loader = pending_.value(i);
-    SongLoader::Result res = loader->LoadFilenamesBlocking();
+    const SongLoader::Result result = loader->LoadFilenamesBlocking();
     task_manager_->SetTaskProgress(async_load_id, ++async_progress);
 
-    if (res == SongLoader::Result::Error) {
+    if (result == SongLoader::Result::Error) {
       const QStringList errors = loader->errors();
       for (const QString &error : errors) {
         Q_EMIT Error(error);
@@ -193,6 +200,7 @@ void SongLoaderInserter::AsyncLoad() {
     }
 
     songs_ << loader->songs();
+    playlist_name_ = loader->playlist_name();
 
   }
   task_manager_->SetTaskFinished(async_load_id);

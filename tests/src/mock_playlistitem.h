@@ -21,13 +21,12 @@
 #ifndef MOCK_PLAYLISTITEM_H
 #define MOCK_PLAYLISTITEM_H
 
-#include <gmock/gmock.h>
+#include "gmock_include.h"
 
 #include <QVariant>
 #include <QUrl>
 
 #include "core/song.h"
-#include "core/settingsprovider.h"
 #include "core/sqlrow.h"
 #include "playlist/playlistitem.h"
 

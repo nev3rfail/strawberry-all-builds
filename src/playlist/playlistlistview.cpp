@@ -33,6 +33,8 @@
 #include "playlistlistview.h"
 #include "playlist.h"
 
+using namespace Qt::Literals::StringLiterals;
+
 namespace {
 constexpr int kDragHoverTimeout = 500;
 }
@@ -51,11 +53,12 @@ void PlaylistListView::paintEvent(QPaintEvent *event) {
     bold_font.setBold(true);
     p.setFont(bold_font);
 
-    p.drawText(rect, Qt::AlignHCenter | Qt::TextWordWrap,
-               tr("\n\n"
-                  "You can favorite playlists by clicking the star icon next "
-                  "to a playlist name\n\n"
-                  "Favorited playlists will be saved here"));
+    p.drawText(rect,
+               Qt::AlignHCenter | Qt::TextWordWrap,
+               "\n\n"_L1 +
+               tr("You can favorite playlists by clicking the star icon next to a playlist name") +
+               "\n\n"_L1 +
+               tr("Favorited playlists will be saved here"));
   }
   else {
     AutoExpandingTreeView::paintEvent(event);
@@ -67,8 +70,13 @@ bool PlaylistListView::ItemsSelected() const {
   return selectionModel()->selectedRows().count() > 0;
 }
 
-void PlaylistListView::selectionChanged(const QItemSelection&, const QItemSelection&) {
+void PlaylistListView::selectionChanged(const QItemSelection &selected, const QItemSelection &deselected) {
+
+  Q_UNUSED(selected)
+  Q_UNUSED(deselected)
+
   Q_EMIT ItemsSelectedChanged(selectionModel()->selectedRows().count() > 0);
+
 }
 
 void PlaylistListView::dragEnterEvent(QDragEnterEvent *e) {

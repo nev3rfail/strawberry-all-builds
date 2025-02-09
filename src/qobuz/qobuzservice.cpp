@@ -38,29 +38,26 @@
 #include <QSettings>
 #include <QSslError>
 
-#include "core/shared_ptr.h"
-#include "core/application.h"
-#include "core/player.h"
+#include "includes/shared_ptr.h"
 #include "core/logging.h"
 #include "core/networkaccessmanager.h"
 #include "core/database.h"
 #include "core/song.h"
 #include "core/settings.h"
+#include "core/urlhandlers.h"
 #include "utilities/macaddrutils.h"
 #include "streaming/streamingsearchview.h"
 #include "collection/collectionbackend.h"
 #include "collection/collectionmodel.h"
-#include "collection/collectionfilter.h"
 #include "qobuzservice.h"
 #include "qobuzurlhandler.h"
 #include "qobuzbaserequest.h"
 #include "qobuzrequest.h"
 #include "qobuzfavoriterequest.h"
 #include "qobuzstreamurlrequest.h"
-#include "settings/settingsdialog.h"
-#include "settings/qobuzsettingspage.h"
+#include "constants/qobuzsettings.h"
 
-using namespace Qt::StringLiterals;
+using namespace Qt::Literals::StringLiterals;
 using std::make_shared;
 
 const Song::Source QobuzService::kSource = Song::Source::Qobuz;
@@ -79,11 +76,15 @@ constexpr char kSongsTable[] = "qobuz_songs";
 
 }  // namespace
 
-QobuzService::QobuzService(Application *app, QObject *parent)
-    : StreamingService(Song::Source::Qobuz, QStringLiteral("Qobuz"), QStringLiteral("qobuz"), QLatin1String(QobuzSettingsPage::kSettingsGroup), SettingsDialog::Page::Qobuz, app, parent),
-      app_(app),
-      network_(app->network()),
-      url_handler_(new QobuzUrlHandler(app, this)),
+QobuzService::QobuzService(const SharedPtr<TaskManager> task_manager,
+                           const SharedPtr<Database> database,
+                           const SharedPtr<NetworkAccessManager> network,
+                           const SharedPtr<UrlHandlers> url_handlers,
+                           const SharedPtr<AlbumCoverLoader> albumcover_loader,
+                           QObject *parent)
+    : StreamingService(Song::Source::Qobuz, u"Qobuz"_s, u"qobuz"_s, QLatin1String(QobuzSettings::kSettingsGroup), parent),
+      network_(network),
+      url_handler_(new QobuzUrlHandler(task_manager, this)),
       artists_collection_backend_(nullptr),
       albums_collection_backend_(nullptr),
       songs_collection_backend_(nullptr),
@@ -109,26 +110,26 @@ QobuzService::QobuzService(Application *app, QObject *parent)
       login_attempts_(0),
       next_stream_url_request_id_(0) {
 
-  app->player()->RegisterUrlHandler(url_handler_);
+  url_handlers->Register(url_handler_);
 
   // Backends
 
   artists_collection_backend_ = make_shared<CollectionBackend>();
-  artists_collection_backend_->moveToThread(app_->database()->thread());
-  artists_collection_backend_->Init(app_->database(), app->task_manager(), Song::Source::Qobuz, QLatin1String(kArtistsSongsTable));
+  artists_collection_backend_->moveToThread(database->thread());
+  artists_collection_backend_->Init(database, task_manager, Song::Source::Qobuz, QLatin1String(kArtistsSongsTable));
 
   albums_collection_backend_ = make_shared<CollectionBackend>();
-  albums_collection_backend_->moveToThread(app_->database()->thread());
-  albums_collection_backend_->Init(app_->database(), app->task_manager(), Song::Source::Qobuz, QLatin1String(kAlbumsSongsTable));
+  albums_collection_backend_->moveToThread(database->thread());
+  albums_collection_backend_->Init(database, task_manager, Song::Source::Qobuz, QLatin1String(kAlbumsSongsTable));
 
   songs_collection_backend_ = make_shared<CollectionBackend>();
-  songs_collection_backend_->moveToThread(app_->database()->thread());
-  songs_collection_backend_->Init(app_->database(), app->task_manager(), Song::Source::Qobuz, QLatin1String(kSongsTable));
+  songs_collection_backend_->moveToThread(database->thread());
+  songs_collection_backend_->Init(database, task_manager, Song::Source::Qobuz, QLatin1String(kSongsTable));
 
   // Models
-  artists_collection_model_ = new CollectionModel(artists_collection_backend_, app_, this);
-  albums_collection_model_ = new CollectionModel(albums_collection_backend_, app_, this);
-  songs_collection_model_ = new CollectionModel(songs_collection_backend_, app_, this);
+  artists_collection_model_ = new CollectionModel(artists_collection_backend_, albumcover_loader, this);
+  albums_collection_model_ = new CollectionModel(albums_collection_backend_, albumcover_loader, this);
+  songs_collection_model_ = new CollectionModel(songs_collection_backend_, albumcover_loader, this);
 
   // Search
 
@@ -206,35 +207,31 @@ void QobuzService::ExitReceived() {
 
 }
 
-void QobuzService::ShowConfig() {
-  app_->OpenSettingsDialogAtPage(SettingsDialog::Page::Qobuz);
-}
-
 void QobuzService::ReloadSettings() {
 
   Settings s;
-  s.beginGroup(QobuzSettingsPage::kSettingsGroup);
+  s.beginGroup(QobuzSettings::kSettingsGroup);
 
-  app_id_ = s.value("app_id").toString();
-  app_secret_ = s.value("app_secret").toString();
+  app_id_ = s.value(QobuzSettings::kAppId).toString();
+  app_secret_ = s.value(QobuzSettings::kAppSecret).toString();
 
-  const bool base64_secret = s.value("base64secret", false).toBool();;
+  const bool base64_secret = s.value(QobuzSettings::kBase64Secret, false).toBool();;
 
-  username_ = s.value("username").toString();
-  QByteArray password = s.value("password").toByteArray();
+  username_ = s.value(QobuzSettings::kUsername).toString();
+  QByteArray password = s.value(QobuzSettings::kPassword).toByteArray();
   if (password.isEmpty()) password_.clear();
   else password_ = QString::fromUtf8(QByteArray::fromBase64(password));
 
-  format_ = s.value("format", 27).toInt();
-  search_delay_ = s.value("searchdelay", 1500).toInt();
-  artistssearchlimit_ = s.value("artistssearchlimit", 4).toInt();
-  albumssearchlimit_ = s.value("albumssearchlimit", 10).toInt();
-  songssearchlimit_ = s.value("songssearchlimit", 10).toInt();
-  download_album_covers_ = s.value("downloadalbumcovers", true).toBool();
+  format_ = s.value(QobuzSettings::kFormat, 27).toInt();
+  search_delay_ = s.value(QobuzSettings::kSearchDelay, 1500).toInt();
+  artistssearchlimit_ = s.value(QobuzSettings::kArtistsSearchLimit, 4).toInt();
+  albumssearchlimit_ = s.value(QobuzSettings::kAlbumsSearchLimit, 10).toInt();
+  songssearchlimit_ = s.value(QobuzSettings::kSongsSearchLimit, 10).toInt();
+  download_album_covers_ = s.value(QobuzSettings::kDownloadAlbumCovers, true).toBool();
 
-  user_id_ = s.value("user_id").toInt();
-  device_id_ = s.value("device_id").toString();
-  user_auth_token_ = s.value("user_auth_token").toString();
+  user_id_ = s.value(QobuzSettings::kUserId).toInt();
+  device_id_ = s.value(QobuzSettings::kDeviceId).toString();
+  user_auth_token_ = s.value(QobuzSettings::kUserAuthToken).toString();
 
   s.endGroup();
 
@@ -278,10 +275,10 @@ void QobuzService::SendLoginWithCredentials(const QString &app_id, const QString
   timer_login_attempt_->setInterval(kTimeResetLoginAttempts);
   timer_login_attempt_->start();
 
-  const ParamList params = ParamList() << Param(QStringLiteral("app_id"), app_id)
-                                       << Param(QStringLiteral("username"), username)
-                                       << Param(QStringLiteral("password"), password)
-                                       << Param(QStringLiteral("device_manufacturer_id"), Utilities::MacAddress());
+  const ParamList params = ParamList() << Param(u"app_id"_s, app_id)
+                                       << Param(u"username"_s, username)
+                                       << Param(u"password"_s, password)
+                                       << Param(u"device_manufacturer_id"_s, Utilities::MacAddress());
 
   QUrlQuery url_query;
   for (const Param &param : params) {
@@ -292,7 +289,7 @@ void QobuzService::SendLoginWithCredentials(const QString &app_id, const QString
   QNetworkRequest req(url);
   req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
 
-  req.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/x-www-form-urlencoded"));
+  req.setHeader(QNetworkRequest::ContentTypeHeader, u"application/x-www-form-urlencoded"_s);
 
   QByteArray query = url_query.toString(QUrl::FullyEncoded).toUtf8();
   QNetworkReply *reply = network_->post(req, query);
@@ -357,89 +354,89 @@ void QobuzService::HandleAuthReply(QNetworkReply *reply) {
   QJsonDocument json_doc = QJsonDocument::fromJson(data, &json_error);
 
   if (json_error.error != QJsonParseError::NoError) {
-    LoginError(QStringLiteral("Authentication reply from server missing Json data."));
+    LoginError(u"Authentication reply from server missing Json data."_s);
     return;
   }
 
   if (json_doc.isEmpty()) {
-    LoginError(QStringLiteral("Authentication reply from server has empty Json document."));
+    LoginError(u"Authentication reply from server has empty Json document."_s);
     return;
   }
 
   if (!json_doc.isObject()) {
-    LoginError(QStringLiteral("Authentication reply from server has Json document that is not an object."), json_doc);
+    LoginError(u"Authentication reply from server has Json document that is not an object."_s, json_doc);
     return;
   }
 
   QJsonObject json_obj = json_doc.object();
   if (json_obj.isEmpty()) {
-    LoginError(QStringLiteral("Authentication reply from server has empty Json object."), json_doc);
+    LoginError(u"Authentication reply from server has empty Json object."_s, json_doc);
     return;
   }
 
   if (!json_obj.contains("user_auth_token"_L1)) {
-    LoginError(QStringLiteral("Authentication reply from server is missing user_auth_token"), json_obj);
+    LoginError(u"Authentication reply from server is missing user_auth_token"_s, json_obj);
     return;
   }
   user_auth_token_ = json_obj["user_auth_token"_L1].toString();
 
   if (!json_obj.contains("user"_L1)) {
-    LoginError(QStringLiteral("Authentication reply from server is missing user"), json_obj);
+    LoginError(u"Authentication reply from server is missing user"_s, json_obj);
     return;
   }
   QJsonValue value_user = json_obj["user"_L1];
   if (!value_user.isObject()) {
-    LoginError(QStringLiteral("Authentication reply user is not a object"), json_obj);
+    LoginError(u"Authentication reply user is not a object"_s, json_obj);
     return;
   }
   QJsonObject obj_user = value_user.toObject();
 
   if (!obj_user.contains("id"_L1)) {
-    LoginError(QStringLiteral("Authentication reply from server is missing user id"), obj_user);
+    LoginError(u"Authentication reply from server is missing user id"_s, obj_user);
     return;
   }
   user_id_ = obj_user["id"_L1].toInt();
 
   if (!obj_user.contains("device"_L1)) {
-    LoginError(QStringLiteral("Authentication reply from server is missing user device"), obj_user);
+    LoginError(u"Authentication reply from server is missing user device"_s, obj_user);
     return;
   }
   QJsonValue value_device = obj_user["device"_L1];
   if (!value_device.isObject()) {
-    LoginError(QStringLiteral("Authentication reply from server user device is not a object"), value_device);
+    LoginError(u"Authentication reply from server user device is not a object"_s, value_device);
     return;
   }
   QJsonObject obj_device = value_device.toObject();
 
   if (!obj_device.contains("device_manufacturer_id"_L1)) {
-    LoginError(QStringLiteral("Authentication reply from server device is missing device_manufacturer_id"), obj_device);
+    LoginError(u"Authentication reply from server device is missing device_manufacturer_id"_s, obj_device);
     return;
   }
   device_id_ = obj_device["device_manufacturer_id"_L1].toString();
 
   if (!obj_user.contains("credential"_L1)) {
-    LoginError(QStringLiteral("Authentication reply from server is missing user credential"), obj_user);
+    LoginError(u"Authentication reply from server is missing user credential"_s, obj_user);
     return;
   }
   QJsonValue value_credential = obj_user["credential"_L1];
   if (!value_credential.isObject()) {
-    LoginError(QStringLiteral("Authentication reply from serve userr credential is not a object"), value_device);
+    LoginError(u"Authentication reply from serve userr credential is not a object"_s, value_device);
     return;
   }
   QJsonObject obj_credential = value_credential.toObject();
 
   if (!obj_credential.contains("id"_L1)) {
-    LoginError(QStringLiteral("Authentication reply user credential from server is missing user credential id"), obj_credential);
+    LoginError(u"Authentication reply user credential from server is missing user credential id"_s, obj_credential);
     return;
   }
   credential_id_ = obj_credential["id"_L1].toInt();
 
   Settings s;
-  s.beginGroup(QobuzSettingsPage::kSettingsGroup);
-  s.setValue("user_auth_token", user_auth_token_);
-  s.setValue("user_id", user_id_);
-  s.setValue("credential_id", credential_id_);
-  s.setValue("device_id", device_id_);
+  s.beginGroup(QobuzSettings::kSettingsGroup);
+  s.setValue(QobuzSettings::kUserAuthToken, user_auth_token_);
+  s.setValue(QobuzSettings::kUserId, user_id_);
+  s.setValue(QobuzSettings::kCredentialsId, credential_id_);
+  s.setValue(QobuzSettings::kDeviceId, device_id_);
   s.endGroup();
 
   qLog(Debug) << "Qobuz: Login successful" << "user id" << user_id_ << "device id" << device_id_;
@@ -460,7 +457,7 @@ void QobuzService::Logout() {
   credential_id_ = -1;
 
   Settings s;
-  s.beginGroup(QobuzSettingsPage::kSettingsGroup);
+  s.beginGroup(QobuzSettings::kSettingsGroup);
   s.remove("user_id");
   s.remove("credential_id");
   s.remove("device_id");
@@ -521,7 +518,7 @@ void QobuzService::GetArtists() {
   }
 
   ResetArtistsRequest();
-  artists_request_.reset(new QobuzRequest(this, url_handler_, app_, network_, QobuzBaseRequest::Type::FavouriteArtists), [](QobuzRequest *request) { request->deleteLater(); });
+  artists_request_.reset(new QobuzRequest(this, url_handler_, network_, QobuzBaseRequest::Type::FavouriteArtists), [](QobuzRequest *request) { request->deleteLater(); });
   QObject::connect(&*artists_request_, &QobuzRequest::Results, this, &QobuzService::ArtistsResultsReceived);
   QObject::connect(&*artists_request_, &QobuzRequest::UpdateStatus, this, &QobuzService::ArtistsUpdateStatusReceived);
   QObject::connect(&*artists_request_, &QobuzRequest::UpdateProgress, this, &QobuzService::ArtistsUpdateProgressReceived);
@@ -571,7 +568,7 @@ void QobuzService::GetAlbums() {
   }
 
   ResetAlbumsRequest();
-  albums_request_.reset(new QobuzRequest(this, url_handler_, app_, network_, QobuzBaseRequest::Type::FavouriteAlbums), [](QobuzRequest *request) { request->deleteLater(); });
+  albums_request_.reset(new QobuzRequest(this, url_handler_, network_, QobuzBaseRequest::Type::FavouriteAlbums), [](QobuzRequest *request) { request->deleteLater(); });
   QObject::connect(&*albums_request_, &QobuzRequest::Results, this, &QobuzService::AlbumsResultsReceived);
   QObject::connect(&*albums_request_, &QobuzRequest::UpdateStatus, this, &QobuzService::AlbumsUpdateStatusReceived);
   QObject::connect(&*albums_request_, &QobuzRequest::UpdateProgress, this, &QobuzService::AlbumsUpdateProgressReceived);
@@ -621,7 +618,7 @@ void QobuzService::GetSongs() {
   }
 
   ResetSongsRequest();
-  songs_request_.reset(new QobuzRequest(this, url_handler_, app_, network_, QobuzBaseRequest::Type::FavouriteSongs), [](QobuzRequest *request) { request->deleteLater(); });
+  songs_request_.reset(new QobuzRequest(this, url_handler_, network_, QobuzBaseRequest::Type::FavouriteSongs), [](QobuzRequest *request) { request->deleteLater(); });
   QObject::connect(&*songs_request_, &QobuzRequest::Results, this, &QobuzService::SongsResultsReceived);
   QObject::connect(&*songs_request_, &QobuzRequest::UpdateStatus, this, &QobuzService::SongsUpdateStatusReceived);
   QObject::connect(&*songs_request_, &QobuzRequest::UpdateProgress, this, &QobuzService::SongsUpdateProgressReceived);
@@ -700,7 +697,7 @@ void QobuzService::SendSearch() {
       break;
   }
 
-  search_request_.reset(new QobuzRequest(this, url_handler_, app_, network_, query_type), [](QobuzRequest *request) { request->deleteLater(); } );
+  search_request_.reset(new QobuzRequest(this, url_handler_, network_, query_type), [](QobuzRequest *request) { request->deleteLater(); } );
 
   QObject::connect(&*search_request_, &QobuzRequest::Results, this, &QobuzService::SearchResultsReceived);
   QObject::connect(&*search_request_, &QobuzRequest::UpdateStatus, this, &QobuzService::SearchUpdateStatus);
@@ -767,7 +764,7 @@ void QobuzService::LoginError(const QString &error, const QVariant &debug) {
   QString error_html;
   for (const QString &e : std::as_const(login_errors_)) {
     qLog(Error) << "Qobuz:" << e;
-    error_html += e + QStringLiteral("<br />");
+    error_html += e + u"<br />"_s;
   }
   if (debug.isValid()) qLog(Debug) << debug;
 

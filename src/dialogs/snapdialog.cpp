@@ -17,21 +17,21 @@
  *
  */
 
+#include "constants/mainwindowsettings.h"
 #include "core/logging.h"
 #include "core/iconloader.h"
-#include "core/mainwindow.h"
 #include "utilities/screenutils.h"
 
 #include "snapdialog.h"
 #include "ui_messagedialog.h"
 
-using namespace Qt::StringLiterals;
+using namespace Qt::Literals::StringLiterals;
 
 SnapDialog::SnapDialog(QWidget *parent) : MessageDialog(parent) {
 
   setWindowTitle(tr("Strawberry is running as a Snap"));
 
-  const QIcon icon = IconLoader::Load(QStringLiteral("dialog-warning"));
+  const QIcon icon = IconLoader::Load(u"dialog-warning"_s);
   const QPixmap pixmap = icon.pixmap(QSize(64, 64), devicePixelRatioF());
   ui_->label_logo->setPixmap(pixmap);
 
@@ -84,7 +84,7 @@ SnapDialog::SnapDialog(QWidget *parent) : MessageDialog(parent) {
   ui_->label_text->adjustSize();
   adjustSize();
 
-  settings_group_ = QLatin1String(MainWindow::kSettingsGroup);
+  settings_group_ = QLatin1String(MainWindowSettings::kSettingsGroup);
   do_not_show_message_again_ = "ignore_snap"_L1;
 
   if (parent) {

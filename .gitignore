@@ -11,7 +11,4 @@
 /out
 /CMakeSettings.json
 /dist/scripts/maketarball.sh
-/dist/unix/strawberry.spec
-/dist/windows/strawberry.nsi
 /debian/changelog
-/dist/macos/Info.plist

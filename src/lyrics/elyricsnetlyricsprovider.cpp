@@ -23,13 +23,13 @@
 #include <QUrl>
 #include <QRegularExpression>
 
-#include "core/shared_ptr.h"
+#include "includes/shared_ptr.h"
 #include "core/networkaccessmanager.h"
 #include "utilities/transliterate.h"
 #include "lyricssearchrequest.h"
 #include "elyricsnetlyricsprovider.h"
 
-using namespace Qt::StringLiterals;
+using namespace Qt::Literals::StringLiterals;
 
 namespace {
 constexpr char kUrl[] = "https://www.elyrics.net/read/";
@@ -38,8 +38,8 @@ constexpr char kEndTag[] = "<\\/div>";
 constexpr char kLyricsStart[] = "<div id='inlyr'>";
 }  // namespace
 
-ElyricsNetLyricsProvider::ElyricsNetLyricsProvider(SharedPtr<NetworkAccessManager> network, QObject *parent)
-    : HtmlLyricsProvider(QStringLiteral("elyrics.net"), true, QLatin1String(kStartTag), QLatin1String(kEndTag), QLatin1String(kLyricsStart), false, network, parent) {}
+ElyricsNetLyricsProvider::ElyricsNetLyricsProvider(const SharedPtr<NetworkAccessManager> network, QObject *parent)
+    : HtmlLyricsProvider(u"elyrics.net"_s, true, QLatin1String(kStartTag), QLatin1String(kEndTag), QLatin1String(kLyricsStart), false, network, parent) {}
 
 QUrl ElyricsNetLyricsProvider::Url(const LyricsSearchRequest &request) {
 
@@ -51,12 +51,12 @@ QString ElyricsNetLyricsProvider::StringFixup(const QString &text) {
 
   Q_ASSERT(QThread::currentThread() != qApp->thread());
 
-  static const QRegularExpression regex_illegal_characters(QStringLiteral("[^\\w0-9_,&\\-\\(\\) ]"));
-  static const QRegularExpression regex_duplicate_whitespaces(QStringLiteral(" {2,}"));
+  static const QRegularExpression regex_illegal_characters(u"[^\\w0-9_,&\\-\\(\\) ]"_s);
+  static const QRegularExpression regex_duplicate_whitespaces(u" {2,}"_s);
 
   return Utilities::Transliterate(text)
-    .replace(regex_illegal_characters, QStringLiteral("_"))
-    .replace(regex_duplicate_whitespaces, QStringLiteral(" "))
+    .replace(regex_illegal_characters, u"_"_s)
+    .replace(regex_duplicate_whitespaces, u" "_s)
     .simplified()
     .replace(u' ', u'-')
     .toLower();

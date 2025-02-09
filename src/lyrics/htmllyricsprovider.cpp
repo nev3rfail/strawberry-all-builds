@@ -29,16 +29,16 @@
 #include <QNetworkRequest>
 #include <QNetworkReply>
 
+#include "includes/shared_ptr.h"
 #include "core/logging.h"
-#include "core/shared_ptr.h"
 #include "core/networkaccessmanager.h"
 #include "utilities/strutils.h"
 #include "htmllyricsprovider.h"
 #include "lyricssearchrequest.h"
 
-using namespace Qt::StringLiterals;
+using namespace Qt::Literals::StringLiterals;
 
-HtmlLyricsProvider::HtmlLyricsProvider(const QString &name, const bool enabled, const QString &start_tag, const QString &end_tag, const QString &lyrics_start, const bool multiple, SharedPtr<NetworkAccessManager> network, QObject *parent)
+HtmlLyricsProvider::HtmlLyricsProvider(const QString &name, const bool enabled, const QString &start_tag, const QString &end_tag, const QString &lyrics_start, const bool multiple, const SharedPtr<NetworkAccessManager> network, QObject *parent)
     : LyricsProvider(name, enabled, false, network, parent), start_tag_(start_tag), end_tag_(end_tag), lyrics_start_(lyrics_start), multiple_(multiple) {}
 
 HtmlLyricsProvider::~HtmlLyricsProvider() {
@@ -69,7 +69,7 @@ void HtmlLyricsProvider::StartSearch(const int id, const LyricsSearchRequest &re
   QUrl url(Url(request));
   QNetworkRequest req(url);
   req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
-  req.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("Mozilla/5.0 (X11; Linux x86_64; rv:122.0) Gecko/20100101 Firefox/122.0"));
+  req.setHeader(QNetworkRequest::UserAgentHeader, u"Mozilla/5.0 (X11; Linux x86_64; rv:122.0) Gecko/20100101 Firefox/122.0"_s);
   QNetworkReply *reply = network_->get(req);
   replies_ << reply;
   QObject::connect(reply, &QNetworkReply::finished, this, [this, reply, id, request]() { HandleLyricsReply(reply, id, request); });
@@ -169,20 +169,20 @@ QString HtmlLyricsProvider::ParseLyricsFromHTML(const QString &content, const QR
       if (!lyrics.isEmpty()) {
         lyrics.append(u'\n');
       }
-      static const QRegularExpression regex_html_tag_a(QStringLiteral("<a [^>]*>[^<]*</a>"));
-      static const QRegularExpression regex_html_tag_script(QStringLiteral("<script>[^>]*</script>"));
-      static const QRegularExpression regex_html_tag_div(QStringLiteral("<div [^>]*>×</div>"));
-      static const QRegularExpression regex_html_tag_br(QStringLiteral("<br[^>]*>"));
-      static const QRegularExpression regex_html_tag_p_close(QStringLiteral("</p>"));
-      static const QRegularExpression regex_html_tags(QStringLiteral("<[^>]*>"));
+      static const QRegularExpression regex_html_tag_a(u"<a [^>]*>[^<]*</a>"_s);
+      static const QRegularExpression regex_html_tag_script(u"<script>[^>]*</script>"_s);
+      static const QRegularExpression regex_html_tag_div(u"<div [^>]*>×</div>"_s);
+      static const QRegularExpression regex_html_tag_br(u"<br[^>]*>"_s);
+      static const QRegularExpression regex_html_tag_p_close(u"</p>"_s);
+      static const QRegularExpression regex_html_tags(u"<[^>]*>"_s);
       lyrics.append(content.mid(start_lyrics_idx, end_lyrics_idx - start_lyrics_idx)
                            .remove(u'\r')
                            .remove(u'\n')
                            .remove(regex_html_tag_a)
                            .remove(regex_html_tag_script)
                            .remove(regex_html_tag_div)
-                           .replace(regex_html_tag_br, QStringLiteral("\n"))
-                           .replace(regex_html_tag_p_close, QStringLiteral("\n\n"))
+                           .replace(regex_html_tag_br, u"\n"_s)
+                           .replace(regex_html_tag_p_close, u"\n\n"_s)
                            .remove(regex_html_tags)
                            .trimmed());
     }

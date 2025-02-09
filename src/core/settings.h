@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2024, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2024-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,14 +21,14 @@
 #define SETTINGS_H
 
 #include <QSettings>
-#include <QObject>
-#include <QVariant>
+#include <QString>
 
 class Settings : public QSettings {
   Q_OBJECT
 
  public:
   explicit Settings(QObject *parent = nullptr);
+  explicit Settings(const QSettings::Scope scope, QObject *parent = nullptr);
   explicit Settings(const QString &filename, const Format format, QObject *parent = nullptr);
 };
 

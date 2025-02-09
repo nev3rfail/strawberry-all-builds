@@ -29,7 +29,7 @@
 #include <QStringList>
 #include <QUrl>
 
-#include "core/shared_ptr.h"
+#include "includes/shared_ptr.h"
 #include "core/song.h"
 #include "tidalservice.h"
 #include "tidalbaserequest.h"
@@ -42,7 +42,7 @@ class TidalStreamURLRequest : public TidalBaseRequest {
   Q_OBJECT
 
  public:
-  explicit TidalStreamURLRequest(TidalService *service, SharedPtr<NetworkAccessManager> network, const QUrl &media_url, const uint id, QObject *parent = nullptr);
+  explicit TidalStreamURLRequest(TidalService *service, const SharedPtr<NetworkAccessManager> network, const QUrl &media_url, const uint id, QObject *parent = nullptr);
   ~TidalStreamURLRequest() override;
 
   void GetStreamURL();
@@ -50,23 +50,16 @@ class TidalStreamURLRequest : public TidalBaseRequest {
   void Cancel();
 
   bool oauth() const { return service_->oauth(); }
-  TidalSettingsPage::StreamUrlMethod stream_url_method() const { return service_->stream_url_method(); }
+  TidalSettings::StreamUrlMethod stream_url_method() const { return service_->stream_url_method(); }
   QUrl media_url() const { return media_url_; }
   int song_id() const { return song_id_; }
 
-  void set_need_login() override { need_login_ = true; }
-  bool need_login() const { return need_login_; }
-
  Q_SIGNALS:
-  void TryLogin();
   void StreamURLFailure(const uint id, const QUrl &media_url, const QString &error);
   void StreamURLSuccess(const uint id, const QUrl &media_url, const QUrl &stream_url, const Song::FileType filetype, const int samplerate = -1, const int bit_depth = -1, const qint64 duration = -1);
 
  private Q_SLOTS:
   void StreamURLReceived();
-
- public Q_SLOTS:
-  void LoginComplete(const bool success, const QString &error = QString());
 
  private:
   void Error(const QString &error, const QVariant &debug = QVariant()) override;
@@ -76,7 +69,6 @@ class TidalStreamURLRequest : public TidalBaseRequest {
   QUrl media_url_;
   uint id_;
   int song_id_;
-  int tries_;
   bool need_login_;
   QStringList errors_;
 };

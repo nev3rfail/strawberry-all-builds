@@ -28,25 +28,25 @@
 #include <QRegularExpression>
 #include <QTextStream>
 
-#include "core/shared_ptr.h"
-#include "utilities/timeconstants.h"
-#include "settings/playlistsettingspage.h"
+#include "includes/shared_ptr.h"
+#include "constants/timeconstants.h"
+#include "constants/playlistsettings.h"
 #include "parserbase.h"
 #include "plsparser.h"
 
-using namespace Qt::StringLiterals;
+using namespace Qt::Literals::StringLiterals;
 
 class CollectionBackendInterface;
 
-PLSParser::PLSParser(SharedPtr<CollectionBackendInterface> collection_backend, QObject *parent)
-    : ParserBase(collection_backend, parent) {}
+PLSParser::PLSParser(const SharedPtr<TagReaderClient> tagreader_client, const SharedPtr<CollectionBackendInterface> collection_backend, QObject *parent)
+    : ParserBase(tagreader_client, collection_backend, parent) {}
 
-SongList PLSParser::Load(QIODevice *device, const QString &playlist_path, const QDir &dir, const bool collection_lookup) const {
+ParserBase::LoadResult PLSParser::Load(QIODevice *device, const QString &playlist_path, const QDir &dir, const bool collection_lookup) const {
 
   Q_UNUSED(playlist_path);
 
   QMap<int, Song> songs;
-  static const QRegularExpression n_re(QStringLiteral("\\d+$"));
+  static const QRegularExpression n_re(u"\\d+$"_s);
 
   while (!device->atEnd()) {
     QString line = QString::fromUtf8(device->readLine()).trimmed();
@@ -83,7 +83,9 @@ SongList PLSParser::Load(QIODevice *device, const QString &playlist_path, const 
 
 }
 
-void PLSParser::Save(const SongList &songs, QIODevice *device, const QDir &dir, const PlaylistSettingsPage::PathType path_type) const {
+void PLSParser::Save(const QString &playlist_name, const SongList &songs, QIODevice *device, const QDir &dir, const PlaylistSettings::PathType path_type) const {
+
+  Q_UNUSED(playlist_name)
 
   QTextStream s(device);
   s << "[playlist]" << Qt::endl;

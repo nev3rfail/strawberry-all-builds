@@ -26,6 +26,7 @@
 #include <functional>
 #include <iterator>
 #include <limits>
+#include <memory>
 
 #include <QtGlobal>
 #include <QtConcurrentRun>
@@ -70,16 +71,15 @@
 #include <QSettings>
 #include <QMimeData>
 
-#include "core/application.h"
 #include "core/iconloader.h"
 #include "core/logging.h"
-#include "core/tagreaderclient.h"
 #include "core/settings.h"
 #include "utilities/strutils.h"
 #include "utilities/timeutils.h"
 #include "utilities/imageutils.h"
 #include "utilities/coverutils.h"
 #include "utilities/coveroptions.h"
+#include "tagreader/tagreaderclient.h"
 #include "widgets/busyindicator.h"
 #include "widgets/lineedit.h"
 #include "collection/collectionbackend.h"
@@ -99,27 +99,40 @@
 #include "covermanager/albumcoverimageresult.h"
 #include "edittagdialog.h"
 #include "ui_edittagdialog.h"
-#include "tagreadermessages.pb.h"
 
-using namespace Qt::StringLiterals;
+using std::make_shared;
+using namespace Qt::Literals::StringLiterals;
 
 namespace {
-constexpr char kTagsDifferentHintText[] = QT_TR_NOOP("(different across multiple songs)");
-constexpr char kArtDifferentHintText[] = QT_TR_NOOP("Different art across multiple songs.");
 constexpr char kSettingsGroup[] = "EditTagDialog";
 constexpr int kSmallImageSize = 128;
 }  // namespace
 
-EditTagDialog::EditTagDialog(Application *app, QWidget *parent)
+const char EditTagDialog::kTagsDifferentHintText[] = QT_TR_NOOP("(different across multiple songs)");
+const char EditTagDialog::kArtDifferentHintText[] = QT_TR_NOOP("Different art across multiple songs.");
+
+EditTagDialog::EditTagDialog(const SharedPtr<NetworkAccessManager> network,
+                             const SharedPtr<TagReaderClient> tagreader_client,
+                             const SharedPtr<CollectionBackend> collection_backend,
+                             const SharedPtr<AlbumCoverLoader> albumcover_loader,
+                             const SharedPtr<CurrentAlbumCoverLoader> current_albumcover_loader,
+                             const SharedPtr<CoverProviders> cover_providers,
+                             const SharedPtr<LyricsProviders> lyrics_providers,
+                             const SharedPtr<StreamingServices> streaming_services,
+                             QWidget *parent)
     : QDialog(parent),
       ui_(new Ui_EditTagDialog),
-      app_(app),
+      tagreader_client_(tagreader_client),
+      collection_backend_(collection_backend),
+      albumcover_loader_(albumcover_loader),
+      current_albumcover_loader_(current_albumcover_loader),
+      cover_providers_(cover_providers),
       album_cover_choice_controller_(new AlbumCoverChoiceController(this)),
 #ifdef HAVE_MUSICBRAINZ
-      tag_fetcher_(new TagFetcher(app->network(), this)),
-      results_dialog_(new TrackSelectionDialog(this)),
+      tag_fetcher_(new TagFetcher(network, this)),
+      results_dialog_(new TrackSelectionDialog(tagreader_client, this)),
 #endif
-      lyrics_fetcher_(new LyricsFetcher(app->lyrics_providers(), this)),
+      lyrics_fetcher_(new LyricsFetcher(lyrics_providers, this)),
       cover_menu_(new QMenu(this)),
       image_no_cover_thumbnail_(ImageUtils::GenerateNoCoverImage(QSize(128, 128), devicePixelRatioF())),
       loading_(false),
@@ -130,7 +143,7 @@ EditTagDialog::EditTagDialog(Application *app, QWidget *parent)
       save_tag_pending_(0),
       lyrics_id_(-1) {
 
-  QObject::connect(&*app_->album_cover_loader(), &AlbumCoverLoader::AlbumCoverLoaded, this, &EditTagDialog::AlbumCoverLoaded);
+  QObject::connect(&*albumcover_loader_, &AlbumCoverLoader::AlbumCoverLoaded, this, &EditTagDialog::AlbumCoverLoaded);
 
 #ifdef HAVE_MUSICBRAINZ
   QObject::connect(tag_fetcher_, &TagFetcher::ResultAvailable, results_dialog_, &TrackSelectionDialog::FetchTagFinished, Qt::QueuedConnection);
@@ -140,14 +153,14 @@ EditTagDialog::EditTagDialog(Application *app, QWidget *parent)
 #endif
   QObject::connect(lyrics_fetcher_, &LyricsFetcher::LyricsFetched, this, &EditTagDialog::UpdateLyrics);
 
-  album_cover_choice_controller_->Init(app_);
+  album_cover_choice_controller_->Init(network, tagreader_client, collection_backend, albumcover_loader, current_albumcover_loader, cover_providers, streaming_services);
 
   ui_->setupUi(this);
   ui_->splitter->setSizes(QList<int>() << 200 << width() - 200);
   ui_->loading_label->hide();
   ui_->label_lyrics->hide();
 
-  ui_->fetch_tag->setIcon(QPixmap::fromImage(QImage(QStringLiteral(":/pictures/musicbrainz.png"))));
+  ui_->fetch_tag->setIcon(QPixmap::fromImage(QImage(u":/pictures/musicbrainz.png"_s)));
 #ifdef HAVE_MUSICBRAINZ
   ui_->fetch_tag->setEnabled(true);
 #else
@@ -235,8 +248,8 @@ EditTagDialog::EditTagDialog(Application *app, QWidget *parent)
   ui_->summary_art->installEventFilter(this);
 
   // Add the next/previous buttons
-  previous_button_ = new QPushButton(IconLoader::Load(QStringLiteral("go-previous")), tr("Previous"), this);
-  next_button_ = new QPushButton(IconLoader::Load(QStringLiteral("go-next")), tr("Next"), this);
+  previous_button_ = new QPushButton(IconLoader::Load(u"go-previous"_s), tr("Previous"), this);
+  next_button_ = new QPushButton(IconLoader::Load(u"go-next"_s), tr("Next"), this);
   ui_->button_box->addButton(previous_button_, QDialogButtonBox::ResetRole);
   ui_->button_box->addButton(next_button_, QDialogButtonBox::ResetRole);
 
@@ -259,13 +272,13 @@ EditTagDialog::EditTagDialog(Application *app, QWidget *parent)
       QKeySequence(QKeySequence::Forward).toString(QKeySequence::NativeText),
       QKeySequence(QKeySequence::MoveToNextPage).toString(QKeySequence::NativeText)));
 
-  new TagCompleter(app_->collection_backend(), Playlist::Column::Artist, ui_->artist);
-  new TagCompleter(app_->collection_backend(), Playlist::Column::Album, ui_->album);
-  new TagCompleter(app_->collection_backend(), Playlist::Column::AlbumArtist, ui_->albumartist);
-  new TagCompleter(app_->collection_backend(), Playlist::Column::Genre, ui_->genre);
-  new TagCompleter(app_->collection_backend(), Playlist::Column::Composer, ui_->composer);
-  new TagCompleter(app_->collection_backend(), Playlist::Column::Performer, ui_->performer);
-  new TagCompleter(app_->collection_backend(), Playlist::Column::Grouping, ui_->grouping);
+  new TagCompleter(collection_backend, Playlist::Column::Artist, ui_->artist);
+  new TagCompleter(collection_backend, Playlist::Column::Album, ui_->album);
+  new TagCompleter(collection_backend, Playlist::Column::AlbumArtist, ui_->albumartist);
+  new TagCompleter(collection_backend, Playlist::Column::Genre, ui_->genre);
+  new TagCompleter(collection_backend, Playlist::Column::Composer, ui_->composer);
+  new TagCompleter(collection_backend, Playlist::Column::Performer, ui_->performer);
+  new TagCompleter(collection_backend, Playlist::Column::Grouping, ui_->grouping);
 
 }
 
@@ -315,7 +328,7 @@ void EditTagDialog::hideEvent(QHideEvent *e) {
 void EditTagDialog::accept() {
 
   // Show the loading indicator
-  if (!SetLoading(tr("Saving tracks") + QStringLiteral("..."))) return;
+  if (!SetLoading(tr("Saving tracks") + u"..."_s)) return;
 
   SaveData();
 
@@ -393,7 +406,7 @@ bool EditTagDialog::SetLoading(const QString &message) {
 
 }
 
-QList<EditTagDialog::Data> EditTagDialog::LoadData(const SongList &songs) {
+QList<EditTagDialog::Data> EditTagDialog::LoadData(const SongList &songs) const {
 
   QList<Data> ret;
 
@@ -401,7 +414,7 @@ QList<EditTagDialog::Data> EditTagDialog::LoadData(const SongList &songs) {
     if (song.IsEditable()) {
       // Try reloading the tags from file
       Song copy(song);
-      const TagReaderClient::Result result = TagReaderClient::Instance()->ReadFileBlocking(copy.url().toLocalFile(), &copy);
+      const TagReaderResult result = tagreader_client_->ReadFileBlocking(copy.url().toLocalFile(), &copy);
       if (result.success() && copy.is_valid()) {
         copy.MergeUserSetData(song, false, false);
         ret << Data(copy);
@@ -416,7 +429,7 @@ QList<EditTagDialog::Data> EditTagDialog::LoadData(const SongList &songs) {
 void EditTagDialog::SetSongs(const SongList &s, const PlaylistItemPtrList &items) {
 
   // Show the loading indicator
-  if (!SetLoading(tr("Loading tracks") + QStringLiteral("..."))) return;
+  if (!SetLoading(tr("Loading tracks") + u"..."_s)) return;
 
   data_.clear();
   playlist_items_ = items;
@@ -424,7 +437,7 @@ void EditTagDialog::SetSongs(const SongList &s, const PlaylistItemPtrList &items
   collection_songs_.clear();
 
   // Reload tags in the background
-  QFuture<QList<Data>> future = QtConcurrent::run(&EditTagDialog::LoadData, s);
+  QFuture<QList<Data>> future = QtConcurrent::run(&EditTagDialog::LoadData, this, s);
   QFutureWatcher<QList<Data>> *watcher = new QFutureWatcher<QList<Data>>();
   QObject::connect(watcher, &QFutureWatcher<QList<Data>>::finished, this, &EditTagDialog::SetSongsFinished);
   watcher->setFuture(future);
@@ -725,7 +738,7 @@ void EditTagDialog::SelectionChanged() {
     album_cover_choice_controller_->cover_to_file_action()->setEnabled(first_song.has_valid_art() && !first_song.art_unset());
     album_cover_choice_controller_->cover_from_file_action()->setEnabled(enable_change_art);
     album_cover_choice_controller_->cover_from_url_action()->setEnabled(enable_change_art);
-    album_cover_choice_controller_->search_for_cover_action()->setEnabled(app_->cover_providers()->HasAnyProviders() && enable_change_art);
+    album_cover_choice_controller_->search_for_cover_action()->setEnabled(cover_providers_->HasAnyProviders() && enable_change_art);
     album_cover_choice_controller_->unset_cover_action()->setEnabled(enable_change_art && !first_song.art_unset());
     album_cover_choice_controller_->clear_cover_action()->setEnabled(enable_change_art && (!first_song.art_manual().isEmpty() || first_song.art_unset()));
     album_cover_choice_controller_->delete_cover_action()->setEnabled(enable_change_art && (first_song.art_embedded() || !first_song.art_automatic().isEmpty() || !first_song.art_manual().isEmpty()));
@@ -734,10 +747,10 @@ void EditTagDialog::SelectionChanged() {
     cover_options.desired_scaled_size = QSize(kSmallImageSize, kSmallImageSize);
     cover_options.device_pixel_ratio = devicePixelRatioF();
     if (data_.value(indexes.first().row()).cover_action_ == UpdateCoverAction::None) {
-      tags_cover_art_id_ = app_->album_cover_loader()->LoadImageAsync(cover_options, first_song);
+      tags_cover_art_id_ = albumcover_loader_->LoadImageAsync(cover_options, first_song);
     }
     else {
-      tags_cover_art_id_ = app_->album_cover_loader()->LoadImageAsync(cover_options, data_[indexes.first().row()].cover_result_);
+      tags_cover_art_id_ = albumcover_loader_->LoadImageAsync(cover_options, data_[indexes.first().row()].cover_result_);
     }
   }
 
@@ -788,14 +801,14 @@ void EditTagDialog::UpdateSummaryTab(const Song &song) {
   cover_options.types = cover_types_;
   cover_options.desired_scaled_size = QSize(kSmallImageSize, kSmallImageSize);
   cover_options.device_pixel_ratio = devicePixelRatioF();
-  summary_cover_art_id_ = app_->album_cover_loader()->LoadImageAsync(cover_options, song);
+  summary_cover_art_id_ = albumcover_loader_->LoadImageAsync(cover_options, song);
 
-  ui_->summary->setText(QStringLiteral("<p><b>") + song.PrettyTitleWithArtist().toHtmlEscaped() + QStringLiteral("</b></p>"));
+  ui_->summary->setText(u"<p><b>"_s + song.PrettyTitleWithArtist().toHtmlEscaped() + u"</b></p>"_s);
 
   ui_->length->setText(Utilities::PrettyTimeNanosec(song.length_nanosec()));
 
-  SetText(ui_->samplerate, song.samplerate(), QStringLiteral("Hz"));
-  SetText(ui_->bitdepth, song.bitdepth(), QStringLiteral("Bit"));
+  SetText(ui_->samplerate, song.samplerate(), u"Hz"_s);
+  SetText(ui_->bitdepth, song.bitdepth(), u"Bit"_s);
   SetText(ui_->bitrate, song.bitrate(), tr("kbps"));
   ui_->ebur128_integrated_loudness->setText(song.Ebur128LoudnessLUFSToText());
   ui_->ebur128_loudness_range->setText(song.Ebur128LoudnessRangeLUToText());
@@ -1276,39 +1289,43 @@ void EditTagDialog::SaveData() {
       if (ref.current_.originalyear() <= 0) { ref.current_.set_originalyear(-1); }
       if (ref.current_.lastplayed() <= 0) { ref.current_.set_lastplayed(-1); }
       ++save_tag_pending_;
-      TagReaderClient::SaveCoverOptions savecover_options;
+      SaveTagCoverData save_tag_cover_data;
       if (save_embedded_cover && ref.cover_action_ == UpdateCoverAction::New) {
         if (!ref.cover_result_.image.isNull()) {
-          savecover_options.mime_type = ref.cover_result_.mime_type;
+          save_tag_cover_data.cover_mimetype = ref.cover_result_.mime_type;
         }
         else if (!embedded_cover_from_file.isEmpty()) {
-          savecover_options.cover_filename = embedded_cover_from_file;
+          save_tag_cover_data.cover_filename = embedded_cover_from_file;
         }
-        savecover_options.cover_data = ref.cover_result_.image_data;
+        save_tag_cover_data.cover_data = ref.cover_result_.image_data;
       }
-      TagReaderClient::SaveTypes save_types;
+      TagReaderClient::SaveOptions save_tags_options;
       if (save_tags) {
-        save_types |= TagReaderClient::SaveType::Tags;
+        save_tags_options |= TagReaderClient::SaveOption::Tags;
       }
       if (save_playcount) {
-        save_types |= TagReaderClient::SaveType::PlayCount;
+        save_tags_options |= TagReaderClient::SaveOption::Playcount;
       }
       if (save_rating) {
-        save_types |= TagReaderClient::SaveType::Rating;
+        save_tags_options |= TagReaderClient::SaveOption::Rating;
       }
       if (save_embedded_cover) {
-        save_types |= TagReaderClient::SaveType::Cover;
+        save_tags_options |= TagReaderClient::SaveOption::Cover;
       }
-      TagReaderReply *reply = TagReaderClient::Instance()->WriteFile(ref.current_.url().toLocalFile(), ref.current_, save_types, savecover_options);
-      QObject::connect(reply, &TagReaderReply::Finished, this, [this, reply, ref]() { SongSaveTagsComplete(reply, ref.current_.url().toLocalFile(), ref.current_, ref.cover_action_); }, Qt::QueuedConnection);
+      TagReaderReplyPtr reply = tagreader_client_->WriteFileAsync(ref.current_.url().toLocalFile(), ref.current_, save_tags_options, save_tag_cover_data);
+      SharedPtr<QMetaObject::Connection> connection = make_shared<QMetaObject::Connection>();
+      *connection = QObject::connect(&*reply, &TagReaderReply::Finished, this, [this, reply, ref, connection]() {
+        SongSaveTagsComplete(reply, ref.current_.url().toLocalFile(), ref.current_, ref.cover_action_);
+        QObject::disconnect(*connection);
+      }, Qt::QueuedConnection);
     }
     // If the cover was changed, but no tags written, make sure to update the collection.
     else if (ref.cover_action_ != UpdateCoverAction::None && !ref.current_.effective_albumartist().isEmpty() && !ref.current_.album().isEmpty()) {
       if (ref.current_.is_collection_song()) {
         collection_songs_.insert(ref.current_.id(), ref.current_);
       }
-      if (ref.current_ == app_->current_albumcover_loader()->last_song()) {
-        app_->current_albumcover_loader()->LoadAlbumCover(ref.current_);
+      if (ref.current_ == current_albumcover_loader_->last_song()) {
+        current_albumcover_loader_->LoadAlbumCover(ref.current_);
       }
     }
 
@@ -1321,7 +1338,7 @@ void EditTagDialog::SaveData() {
 void EditTagDialog::SaveDataFinished() {
 
   if (!collection_songs_.isEmpty()) {
-    app_->collection_backend()->AddOrUpdateSongsAsync(collection_songs_.values());
+    collection_backend_->AddOrUpdateSongsAsync(collection_songs_.values());
     collection_songs_.clear();
   }
 
@@ -1451,15 +1468,12 @@ void EditTagDialog::UpdateLyrics(const quint64 id, const QString &provider, cons
 
 }
 
-void EditTagDialog::SongSaveTagsComplete(TagReaderReply *reply, const QString &filename, Song song, const UpdateCoverAction cover_action) {
+void EditTagDialog::SongSaveTagsComplete(TagReaderReplyPtr reply, const QString &filename, Song song, const UpdateCoverAction cover_action) {
 
   --save_tag_pending_;
-  const bool success = reply->message().write_file_response().success();
-  QString error;
-  if (!success && reply->message().write_file_response().has_error()) {
-    error = QString::fromStdString(reply->message().write_file_response().error());
-  }
-  reply->deleteLater();
+
+  const bool success = reply->success();
+  const QString error = reply->error();
 
   if (success) {
     if (song.is_collection_song()) {
@@ -1486,8 +1500,8 @@ void EditTagDialog::SongSaveTagsComplete(TagReaderReply *reply, const QString &f
       }
       collection_songs_.insert(song.id(), song);
     }
-    if (cover_action != UpdateCoverAction::None && song == app_->current_albumcover_loader()->last_song()) {
-      app_->current_albumcover_loader()->LoadAlbumCover(song);
+    if (cover_action != UpdateCoverAction::None && song == current_albumcover_loader_->last_song()) {
+      current_albumcover_loader_->LoadAlbumCover(song);
     }
   }
   else {

@@ -29,7 +29,7 @@
 #include <QString>
 #include <QKeySequence>
 
-#include "core/scoped_ptr.h"
+#include "includes/scoped_ptr.h"
 #include "globalshortcuts/globalshortcutsmanager.h"
 #include "settingspage.h"
 
@@ -42,18 +42,14 @@ class GlobalShortcutsSettingsPage : public SettingsPage {
   Q_OBJECT
 
  public:
-  explicit GlobalShortcutsSettingsPage(SettingsDialog *dialog, QWidget *parent = nullptr);
+  explicit GlobalShortcutsSettingsPage(SettingsDialog *dialog, GlobalShortcutsManager *global_shortcuts_manager, QWidget *parent = nullptr);
   ~GlobalShortcutsSettingsPage() override;
-
-  static const char *kSettingsGroup;
 
   void Load() override;
   void Save() override;
 
  private Q_SLOTS:
   void ShortcutOptionsChanged();
-  void OpenGnomeKeybindingProperties();
-  void OpenMateKeybindingProperties();
 
   void ItemClicked(QTreeWidgetItem*);
   void NoneClicked();
@@ -74,13 +70,14 @@ class GlobalShortcutsSettingsPage : public SettingsPage {
  private:
   Ui_GlobalShortcutsSettingsPage *ui_;
 
+  GlobalShortcutsManager *global_shortcuts_manager_;
+
   bool initialized_;
   ScopedPtr<GlobalShortcutGrabber> grabber_;
 
   QMap<QString, Shortcut> shortcuts_;
 
   QString current_id_;
-  QString de_;
 };
 
 #endif  // GLOBALSHORTCUTSSETTINGSPAGE_H

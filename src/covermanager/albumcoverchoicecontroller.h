@@ -38,7 +38,7 @@
 #include <QMutex>
 
 #include "core/song.h"
-#include "core/tagreaderclient.h"
+#include "tagreader/tagreaderclient.h"
 #include "utilities/coveroptions.h"
 #include "albumcoverloaderoptions.h"
 #include "albumcoverimageresult.h"
@@ -50,25 +50,33 @@ class QMenu;
 class QDragEnterEvent;
 class QDropEvent;
 
-class Application;
+class NetworkAccessManager;
+class CollectionBackend;
+class AlbumCoverLoader;
+class CurrentAlbumCoverLoader;
+class CoverProviders;
 class AlbumCoverFetcher;
 class AlbumCoverSearcher;
 class CoverFromURLDialog;
 struct CoverSearchStatistics;
+class StreamingServices;
 
 // Controller for the common album cover related menu options.
 class AlbumCoverChoiceController : public QWidget {
   Q_OBJECT
 
  public:
-  static const char *kLoadImageFileFilter;
-  static const char *kSaveImageFileFilter;
-  static const char *kAllFilesFilter;
-
   explicit AlbumCoverChoiceController(QWidget *parent = nullptr);
   ~AlbumCoverChoiceController() override;
 
-  void Init(Application *app);
+  void Init(const SharedPtr<NetworkAccessManager> network,
+            const SharedPtr<TagReaderClient> tagreader_client,
+            const SharedPtr<CollectionBackend> collection_backend,
+            const SharedPtr<AlbumCoverLoader> albumcover_loader,
+            const SharedPtr<CurrentAlbumCoverLoader> current_albumcover_loader,
+            const SharedPtr<CoverProviders> cover_providers,
+            const SharedPtr<StreamingServices> streaming_services);
+
   void ReloadSettings();
 
   CoverOptions::CoverType get_save_album_cover_type() const { return (save_embedded_cover_override_ ? CoverOptions::CoverType::Embedded : cover_options_.cover_type); }
@@ -160,7 +168,7 @@ class AlbumCoverChoiceController : public QWidget {
 
  private Q_SLOTS:
   void AlbumCoverFetched(const quint64 id, const AlbumCoverImageResult &result, const CoverSearchStatistics &statistics);
-  void SaveEmbeddedCoverFinished(TagReaderReply *reply, Song song, const bool art_embedded);
+  void SaveEmbeddedCoverFinished(TagReaderReplyPtr reply, Song song, const bool art_embedded);
 
  Q_SIGNALS:
   void Error(const QString &error);
@@ -172,7 +180,12 @@ class AlbumCoverChoiceController : public QWidget {
   static bool IsKnownImageExtension(const QString &suffix);
   static QSet<QString> *sImageExtensions;
 
-  Application *app_;
+  SharedPtr<CurrentAlbumCoverLoader> current_albumcover_loader_;
+  SharedPtr<NetworkAccessManager> network_;
+  SharedPtr<TagReaderClient> tagreader_client_;
+  SharedPtr<CollectionBackend> collection_backend_;
+  SharedPtr<StreamingServices> streaming_services_;
+
   AlbumCoverSearcher *cover_searcher_;
   AlbumCoverFetcher *cover_fetcher_;
 

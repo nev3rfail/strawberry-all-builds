@@ -29,20 +29,20 @@
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
 
-#include "core/shared_ptr.h"
+#include "includes/shared_ptr.h"
 #include "utilities/xmlutils.h"
-#include "settings/playlistsettingspage.h"
+#include "constants/playlistsettings.h"
 #include "xmlparser.h"
 #include "asxparser.h"
 
-using namespace Qt::StringLiterals;
+using namespace Qt::Literals::StringLiterals;
 
 class CollectionBackendInterface;
 
-ASXParser::ASXParser(SharedPtr<CollectionBackendInterface> collection_backend, QObject *parent)
-    : XMLParser(collection_backend, parent) {}
+ASXParser::ASXParser(const SharedPtr<TagReaderClient> tagreader_client, const SharedPtr<CollectionBackendInterface> collection_backend, QObject *parent)
+    : XMLParser(tagreader_client, collection_backend, parent) {}
 
-SongList ASXParser::Load(QIODevice *device, const QString &playlist_path, const QDir &dir, const bool collection_lookup) const {
+ParserBase::LoadResult ASXParser::Load(QIODevice *device, const QString &playlist_path, const QDir &dir, const bool collection_lookup) const {
 
   Q_UNUSED(playlist_path);
 
@@ -50,13 +50,13 @@ SongList ASXParser::Load(QIODevice *device, const QString &playlist_path, const 
   QByteArray data = device->readAll();
 
   // Some playlists have unescaped & characters in URLs :(
-  static const QRegularExpression ex(QStringLiteral("(href\\s*=\\s*\")([^\"]+)\""), QRegularExpression::CaseInsensitiveOption);
+  static const QRegularExpression ex(u"(href\\s*=\\s*\")([^\"]+)\""_s, QRegularExpression::CaseInsensitiveOption);
   qint64 index = 0;
   for (QRegularExpressionMatch re_match = ex.match(QString::fromUtf8(data), index); re_match.hasMatch(); re_match = ex.match(QString::fromUtf8(data), index)) {
     index = re_match.capturedStart();
     QString url = re_match.captured(2);
-    static const QRegularExpression regex_html_enities(QStringLiteral("&(?!amp;|quot;|apos;|lt;|gt;)"));
-    url.replace(regex_html_enities, QStringLiteral("&amp;"));
+    static const QRegularExpression regex_html_enities(u"&(?!amp;|quot;|apos;|lt;|gt;)"_s);
+    url.replace(regex_html_enities, u"&amp;"_s);
 
     QByteArray replacement = QStringLiteral("%1%2\"").arg(re_match.captured(1), url).toLocal8Bit();
     data.replace(re_match.captured(0).toLocal8Bit(), replacement);
@@ -67,13 +67,13 @@ SongList ASXParser::Load(QIODevice *device, const QString &playlist_path, const 
   if (!buffer.open(QIODevice::ReadOnly)) return SongList();
 
   QXmlStreamReader reader(&buffer);
-  if (!Utilities::ParseUntilElementCI(&reader, QStringLiteral("asx"))) {
+  if (!Utilities::ParseUntilElementCI(&reader, u"asx"_s)) {
     buffer.close();
     return SongList();
   }
 
   SongList ret;
-  while (!reader.atEnd() && Utilities::ParseUntilElementCI(&reader, QStringLiteral("entry"))) {
+  while (!reader.atEnd() && Utilities::ParseUntilElementCI(&reader, u"entry"_s)) {
     Song song = ParseTrack(&reader, dir, collection_lookup);
     if (song.is_valid()) {
       ret << song;
@@ -133,20 +133,24 @@ return_song:
 
 }
 
-void ASXParser::Save(const SongList &songs, QIODevice *device, const QDir&, const PlaylistSettingsPage::PathType) const {
+void ASXParser::Save(const QString &playlist_name, const SongList &songs, QIODevice *device, const QDir &dir, const PlaylistSettings::PathType path_type) const {
+
+  Q_UNUSED(playlist_name)
+  Q_UNUSED(dir)
+  Q_UNUSED(path_type)
 
   QXmlStreamWriter writer(device);
   writer.setAutoFormatting(true);
   writer.setAutoFormattingIndent(2);
   writer.writeStartDocument();
   {
-    StreamElement asx(QStringLiteral("asx"), &writer);
+    StreamElement asx(u"asx"_s, &writer);
     writer.writeAttribute("version"_L1, "3.0"_L1);
     for (const Song &song : songs) {
-      StreamElement entry(QStringLiteral("entry"), &writer);
+      StreamElement entry(u"entry"_s, &writer);
       writer.writeTextElement("title"_L1, song.title());
       {
-        StreamElement ref(QStringLiteral("ref"), &writer);
+        StreamElement ref(u"ref"_s, &writer);
         writer.writeAttribute("href"_L1, song.url().toString());
       }
       if (!song.artist().isEmpty()) {

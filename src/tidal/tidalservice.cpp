@@ -42,59 +42,70 @@
 #include <QSettings>
 #include <QSortFilterProxyModel>
 
+#include "includes/shared_ptr.h"
 #include "core/logging.h"
-#include "core/shared_ptr.h"
-#include "core/application.h"
-#include "core/player.h"
 #include "core/networkaccessmanager.h"
 #include "core/database.h"
 #include "core/song.h"
 #include "core/settings.h"
+#include "core/taskmanager.h"
+#include "core/database.h"
+#include "core/networkaccessmanager.h"
+#include "core/urlhandlers.h"
 #include "utilities/randutils.h"
-#include "utilities/timeconstants.h"
+#include "constants/timeconstants.h"
+#include "constants/tidalsettings.h"
 #include "streaming/streamingsearchview.h"
 #include "collection/collectionbackend.h"
 #include "collection/collectionmodel.h"
-#include "collection/collectionfilter.h"
+#include "covermanager/albumcoverloader.h"
 #include "tidalservice.h"
 #include "tidalurlhandler.h"
 #include "tidalbaserequest.h"
 #include "tidalrequest.h"
 #include "tidalfavoriterequest.h"
 #include "tidalstreamurlrequest.h"
-#include "settings/settingsdialog.h"
 #include "settings/tidalsettingspage.h"
 
 using namespace std::chrono_literals;
-using namespace Qt::StringLiterals;
+using namespace Qt::Literals::StringLiterals;
 using std::make_shared;
 
 const Song::Source TidalService::kSource = Song::Source::Tidal;
 
 const char TidalService::kApiUrl[] = "https://api.tidalhifi.com/v1";
 const char TidalService::kResourcesUrl[] = "https://resources.tidal.com";
-const int TidalService::kLoginAttempts = 2;
 
 namespace {
 
 constexpr char kOAuthUrl[] = "https://login.tidal.com/authorize";
 constexpr char kOAuthAccessTokenUrl[] = "https://login.tidal.com/oauth2/token";
 constexpr char kOAuthRedirectUrl[] = "tidal://login/auth";
-constexpr char kAuthUrl[] = "https://api.tidalhifi.com/v1/login/username";
-
-constexpr int kTimeResetLoginAttempts = 60000;
 
 constexpr char kArtistsSongsTable[] = "tidal_artists_songs";
 constexpr char kAlbumsSongsTable[] = "tidal_albums_songs";
 constexpr char kSongsTable[] = "tidal_songs";
 
+constexpr char kUserId[] = "user_id";
+constexpr char kCountryCode[] = "country_code";
+constexpr char kTokenType[] = "token_type";
+constexpr char kAccessToken[] = "access_token";
+constexpr char kRefreshToken[] = "refresh_token";
+constexpr char kSessionId[] = "session_id";
+constexpr char kExpiresIn[] = "expires_in";
+constexpr char kLoginTime[] = "login_time";
+
 }  // namespace
 
-TidalService::TidalService(Application *app, QObject *parent)
-    : StreamingService(Song::Source::Tidal, QStringLiteral("Tidal"), QStringLiteral("tidal"), QLatin1String(TidalSettingsPage::kSettingsGroup), SettingsDialog::Page::Tidal, app, parent),
-      app_(app),
-      network_(app->network()),
-      url_handler_(new TidalUrlHandler(app, this)),
+TidalService::TidalService(const SharedPtr<TaskManager> task_manager,
+                           const SharedPtr<Database> database,
+                           const SharedPtr<NetworkAccessManager> network,
+                           const SharedPtr<UrlHandlers> url_handlers,
+                           const SharedPtr<AlbumCoverLoader> albumcover_loader,
+                           QObject *parent)
+    : StreamingService(Song::Source::Tidal, u"Tidal"_s, u"tidal"_s, QLatin1String(TidalSettings::kSettingsGroup), parent),
+      network_(network),
+      url_handler_(new TidalUrlHandler(task_manager, this)),
       artists_collection_backend_(nullptr),
       albums_collection_backend_(nullptr),
       songs_collection_backend_(nullptr),
@@ -102,18 +113,16 @@ TidalService::TidalService(Application *app, QObject *parent)
       albums_collection_model_(nullptr),
       songs_collection_model_(nullptr),
       timer_search_delay_(new QTimer(this)),
-      timer_login_attempt_(new QTimer(this)),
       timer_refresh_login_(new QTimer(this)),
       favorite_request_(new TidalFavoriteRequest(this, network_, this)),
       enabled_(false),
-      oauth_(false),
       user_id_(0),
       artistssearchlimit_(1),
       albumssearchlimit_(1),
       songssearchlimit_(1),
       fetchalbums_(true),
       download_album_covers_(true),
-      stream_url_method_(TidalSettingsPage::StreamUrlMethod::StreamUrl),
+      stream_url_method_(TidalSettings::StreamUrlMethod::StreamUrl),
       album_explicit_(false),
       expires_in_(0),
       login_time_(0),
@@ -121,45 +130,36 @@ TidalService::TidalService(Application *app, QObject *parent)
       next_pending_search_id_(1),
       pending_search_type_(StreamingSearchView::SearchType::Artists),
       search_id_(0),
-      login_sent_(false),
-      login_attempts_(0),
       next_stream_url_request_id_(0) {
 
-  app->player()->RegisterUrlHandler(url_handler_);
+  url_handlers->Register(url_handler_);
 
   // Backends
 
   artists_collection_backend_ = make_shared<CollectionBackend>();
-  artists_collection_backend_->moveToThread(app_->database()->thread());
-  artists_collection_backend_->Init(app_->database(), app->task_manager(), Song::Source::Tidal, QLatin1String(kArtistsSongsTable));
+  artists_collection_backend_->moveToThread(database->thread());
+  artists_collection_backend_->Init(database, task_manager, Song::Source::Tidal, QLatin1String(kArtistsSongsTable));
 
   albums_collection_backend_ = make_shared<CollectionBackend>();
-  albums_collection_backend_->moveToThread(app_->database()->thread());
-  albums_collection_backend_->Init(app_->database(), app->task_manager(), Song::Source::Tidal, QLatin1String(kAlbumsSongsTable));
+  albums_collection_backend_->moveToThread(database->thread());
+  albums_collection_backend_->Init(database, task_manager, Song::Source::Tidal, QLatin1String(kAlbumsSongsTable));
 
   songs_collection_backend_ = make_shared<CollectionBackend>();
-  songs_collection_backend_->moveToThread(app_->database()->thread());
-  songs_collection_backend_->Init(app_->database(), app->task_manager(), Song::Source::Tidal, QLatin1String(kSongsTable));
+  songs_collection_backend_->moveToThread(database->thread());
+  songs_collection_backend_->Init(database, task_manager, Song::Source::Tidal, QLatin1String(kSongsTable));
 
   // Models
-  artists_collection_model_ = new CollectionModel(artists_collection_backend_, app_, this);
-  albums_collection_model_ = new CollectionModel(albums_collection_backend_, app_, this);
-  songs_collection_model_ = new CollectionModel(songs_collection_backend_, app_, this);
+  artists_collection_model_ = new CollectionModel(artists_collection_backend_, albumcover_loader, this);
+  albums_collection_model_ = new CollectionModel(albums_collection_backend_, albumcover_loader, this);
+  songs_collection_model_ = new CollectionModel(songs_collection_backend_, albumcover_loader, this);
 
   // Search
 
   timer_search_delay_->setSingleShot(true);
   QObject::connect(timer_search_delay_, &QTimer::timeout, this, &TidalService::StartSearch);
 
-  timer_login_attempt_->setSingleShot(true);
-  timer_login_attempt_->setInterval(kTimeResetLoginAttempts);
-  QObject::connect(timer_login_attempt_, &QTimer::timeout, this, &TidalService::ResetLoginAttempts);
-
   timer_refresh_login_->setSingleShot(true);
   QObject::connect(timer_refresh_login_, &QTimer::timeout, this, &TidalService::RequestNewAccessToken);
-
-  QObject::connect(this, &TidalService::RequestLogin, this, &TidalService::SendLogin);
-  QObject::connect(this, &TidalService::LoginWithCredentials, this, &TidalService::SendLoginWithCredentials);
 
   QObject::connect(this, &TidalService::AddArtists, favorite_request_, &TidalFavoriteRequest::AddArtists);
   QObject::connect(this, &TidalService::AddAlbums, favorite_request_, &TidalFavoriteRequest::AddAlbums);
@@ -169,8 +169,6 @@ TidalService::TidalService(Application *app, QObject *parent)
   QObject::connect(this, &TidalService::RemoveAlbums, favorite_request_, &TidalFavoriteRequest::RemoveAlbums);
   QObject::connect(this, &TidalService::RemoveSongsByList, favorite_request_, QOverload<const SongList&>::of(&TidalFavoriteRequest::RemoveSongs));
   QObject::connect(this, &TidalService::RemoveSongsByMap, favorite_request_, QOverload<const SongMap&>::of(&TidalFavoriteRequest::RemoveSongs));
-
-  QObject::connect(favorite_request_, &TidalFavoriteRequest::RequestLogin, this, &TidalService::SendLogin);
 
   QObject::connect(favorite_request_, &TidalFavoriteRequest::ArtistsAdded, &*artists_collection_backend_, &CollectionBackend::AddOrUpdateSongs);
   QObject::connect(favorite_request_, &TidalFavoriteRequest::AlbumsAdded, &*albums_collection_backend_, &CollectionBackend::AddOrUpdateSongs);
@@ -225,22 +223,22 @@ void TidalService::ExitReceived() {
 
 }
 
-void TidalService::ShowConfig() {
-  app_->OpenSettingsDialogAtPage(SettingsDialog::Page::Tidal);
-}
-
 void TidalService::LoadSession() {
 
   Settings s;
-  s.beginGroup(TidalSettingsPage::kSettingsGroup);
-  user_id_ = s.value("user_id").toInt();
-  country_code_ = s.value("country_code", QStringLiteral("US")).toString();
-  access_token_ = s.value("access_token").toString();
-  refresh_token_ = s.value("refresh_token").toString();
-  session_id_ = s.value("session_id").toString();
-  expires_in_ = s.value("expires_in").toLongLong();
-  login_time_ = s.value("login_time").toLongLong();
+  s.beginGroup(TidalSettings::kSettingsGroup);
+  user_id_ = s.value(kUserId).toInt();
+  country_code_ = s.value(kCountryCode, u"US"_s).toString();
+  token_type_ = s.value(kTokenType).toString();
+  access_token_ = s.value(kAccessToken).toString();
+  refresh_token_ = s.value(kRefreshToken).toString();
+  expires_in_ = s.value(kExpiresIn).toLongLong();
+  login_time_ = s.value(kLoginTime).toLongLong();
   s.endGroup();
+
+  if (token_type_.isEmpty()) {
+    token_type_ = "Bearer"_L1;
+  }
 
   if (!refresh_token_.isEmpty()) {
     qint64 time = static_cast<qint64>(expires_in_) - (QDateTime::currentSecsSinceEpoch() - static_cast<qint64>(login_time_));
@@ -258,28 +256,20 @@ void TidalService::LoadSession() {
 void TidalService::ReloadSettings() {
 
   Settings s;
-  s.beginGroup(TidalSettingsPage::kSettingsGroup);
+  s.beginGroup(TidalSettings::kSettingsGroup);
 
-  enabled_ = s.value("enabled", false).toBool();
-  oauth_ = s.value("oauth", true).toBool();
-  client_id_ = s.value("client_id").toString();
-  api_token_ = s.value("api_token").toString();
-
-  username_ = s.value("username").toString();
-  QByteArray password = s.value("password").toByteArray();
-  if (password.isEmpty()) password_.clear();
-  else password_ = QString::fromUtf8(QByteArray::fromBase64(password));
-
-  quality_ = s.value("quality", QStringLiteral("LOSSLESS")).toString();
-  quint64 search_delay = s.value("searchdelay", 1500).toInt();
-  artistssearchlimit_ = s.value("artistssearchlimit", 4).toInt();
-  albumssearchlimit_ = s.value("albumssearchlimit", 10).toInt();
-  songssearchlimit_ = s.value("songssearchlimit", 10).toInt();
-  fetchalbums_ = s.value("fetchalbums", false).toBool();
-  coversize_ = s.value("coversize", QStringLiteral("640x640")).toString();
-  download_album_covers_ = s.value("downloadalbumcovers", true).toBool();
-  stream_url_method_ = static_cast<TidalSettingsPage::StreamUrlMethod>(s.value("streamurl", static_cast<int>(TidalSettingsPage::StreamUrlMethod::StreamUrl)).toInt());
-  album_explicit_ = s.value("album_explicit").toBool();
+  enabled_ = s.value(TidalSettings::kEnabled, false).toBool();
+  client_id_ = s.value(TidalSettings::kClientId).toString();
+  quality_ = s.value(TidalSettings::kQuality, u"LOSSLESS"_s).toString();
+  quint64 search_delay = s.value(TidalSettings::kSearchDelay, 1500).toInt();
+  artistssearchlimit_ = s.value(TidalSettings::kArtistsSearchLimit, 4).toInt();
+  albumssearchlimit_ = s.value(TidalSettings::kAlbumsSearchLimit, 10).toInt();
+  songssearchlimit_ = s.value(TidalSettings::kSongsSearchLimit, 10).toInt();
+  fetchalbums_ = s.value(TidalSettings::kFetchAlbums, false).toBool();
+  coversize_ = s.value(TidalSettings::kCoverSize, u"640x640"_s).toString();
+  download_album_covers_ = s.value(TidalSettings::kDownloadAlbumCovers, true).toBool();
+  stream_url_method_ = static_cast<TidalSettings::StreamUrlMethod>(s.value(TidalSettings::kStreamUrl, static_cast<int>(TidalSettings::StreamUrlMethod::StreamUrl)).toInt());
+  album_explicit_ = s.value(TidalSettings::kAlbumExplicit).toBool();
 
   s.endGroup();
 
@@ -297,12 +287,12 @@ void TidalService::StartAuthorization(const QString &client_id) {
     code_challenge_.chop(1);
   }
 
-  const ParamList params = ParamList() << Param(QStringLiteral("response_type"), QStringLiteral("code"))
-                                       << Param(QStringLiteral("code_challenge"), code_challenge_)
-                                       << Param(QStringLiteral("code_challenge_method"), QStringLiteral("S256"))
-                                       << Param(QStringLiteral("redirect_uri"), QLatin1String(kOAuthRedirectUrl))
-                                       << Param(QStringLiteral("client_id"), client_id_)
-                                       << Param(QStringLiteral("scope"), QStringLiteral("r_usr w_usr"));
+  const ParamList params = ParamList() << Param(u"response_type"_s, u"code"_s)
+                                       << Param(u"code_challenge"_s, code_challenge_)
+                                       << Param(u"code_challenge_method"_s, u"S256"_s)
+                                       << Param(u"redirect_uri"_s, QLatin1String(kOAuthRedirectUrl))
+                                       << Param(u"client_id"_s, client_id_)
+                                       << Param(u"scope"_s, u"r_usr w_usr"_s);
 
   QUrlQuery url_query;
   for (const Param &param : params) {
@@ -321,32 +311,32 @@ void TidalService::AuthorizationUrlReceived(const QUrl &url) {
 
   QUrlQuery url_query(url);
 
-  if (url_query.hasQueryItem(QStringLiteral("token_type")) && url_query.hasQueryItem(QStringLiteral("expires_in")) && url_query.hasQueryItem(QStringLiteral("access_token"))) {
+  if (url_query.hasQueryItem(u"token_type"_s) && url_query.hasQueryItem(u"expires_in"_s) && url_query.hasQueryItem(u"access_token"_s)) {
 
-    access_token_ = url_query.queryItemValue(QStringLiteral("access_token"));
-    if (url_query.hasQueryItem(QStringLiteral("refresh_token"))) {
-      refresh_token_ = url_query.queryItemValue(QStringLiteral("refresh_token"));
+    access_token_ = url_query.queryItemValue(u"access_token"_s);
+    if (url_query.hasQueryItem(u"refresh_token"_s)) {
+      refresh_token_ = url_query.queryItemValue(u"refresh_token"_s);
     }
-    expires_in_ = url_query.queryItemValue(QStringLiteral("expires_in")).toInt();
+    expires_in_ = url_query.queryItemValue(u"expires_in"_s).toInt();
     login_time_ = QDateTime::currentSecsSinceEpoch();
-    session_id_.clear();
 
     Settings s;
-    s.beginGroup(TidalSettingsPage::kSettingsGroup);
-    s.setValue("access_token", access_token_);
-    s.setValue("refresh_token", refresh_token_);
-    s.setValue("expires_in", expires_in_);
-    s.setValue("login_time", login_time_);
-    s.remove("session_id");
+    s.beginGroup(TidalSettings::kSettingsGroup);
+    s.setValue(kTokenType, token_type_);
+    s.setValue(kAccessToken, access_token_);
+    s.setValue(kRefreshToken, refresh_token_);
+    s.setValue(kExpiresIn, expires_in_);
+    s.setValue(kLoginTime, login_time_);
+    s.remove(kSessionId);
     s.endGroup();
 
     Q_EMIT LoginComplete(true);
     Q_EMIT LoginSuccess();
   }
 
-  else if (url_query.hasQueryItem(QStringLiteral("code")) && url_query.hasQueryItem(QStringLiteral("state"))) {
+  else if (url_query.hasQueryItem(u"code"_s) && url_query.hasQueryItem(u"state"_s)) {
 
-    QString code = url_query.queryItemValue(QStringLiteral("code"));
+    QString code = url_query.queryItemValue(u"code"_s);
 
     RequestAccessToken(code);
 
@@ -363,18 +353,18 @@ void TidalService::RequestAccessToken(const QString &code) {
 
   timer_refresh_login_->stop();
 
-  ParamList params = ParamList() << Param(QStringLiteral("client_id"), client_id_);
+  ParamList params = ParamList() << Param(u"client_id"_s, client_id_);
 
   if (!code.isEmpty()) {
-    params << Param(QStringLiteral("grant_type"), QStringLiteral("authorization_code"));
-    params << Param(QStringLiteral("code"), code);
-    params << Param(QStringLiteral("code_verifier"), code_verifier_);
-    params << Param(QStringLiteral("redirect_uri"), QLatin1String(kOAuthRedirectUrl));
-    params << Param(QStringLiteral("scope"), QStringLiteral("r_usr w_usr"));
+    params << Param(u"grant_type"_s, u"authorization_code"_s);
+    params << Param(u"code"_s, code);
+    params << Param(u"code_verifier"_s, code_verifier_);
+    params << Param(u"redirect_uri"_s, QLatin1String(kOAuthRedirectUrl));
+    params << Param(u"scope"_s, u"r_usr w_usr"_s);
   }
-  else if (!refresh_token_.isEmpty() && enabled_ && oauth_) {
-    params << Param(QStringLiteral("grant_type"), QStringLiteral("refresh_token"));
-    params << Param(QStringLiteral("refresh_token"), refresh_token_);
+  else if (!refresh_token_.isEmpty() && enabled_) {
+    params << Param(u"grant_type"_s, u"refresh_token"_s);
+    params << Param(u"refresh_token"_s, refresh_token_);
   }
   else {
     return;
@@ -451,36 +441,35 @@ void TidalService::AccessTokenRequestFinished(QNetworkReply *reply) {
   QJsonDocument json_doc = QJsonDocument::fromJson(data, &json_error);
 
   if (json_error.error != QJsonParseError::NoError) {
-    LoginError(QStringLiteral("Authentication reply from server missing Json data."));
+    LoginError(u"Authentication reply from server missing Json data."_s);
     return;
   }
 
   if (json_doc.isEmpty()) {
-    LoginError(QStringLiteral("Authentication reply from server has empty Json document."));
+    LoginError(u"Authentication reply from server has empty Json document."_s);
     return;
   }
 
   if (!json_doc.isObject()) {
-    LoginError(QStringLiteral("Authentication reply from server has Json document that is not an object."), json_doc);
+    LoginError(u"Authentication reply from server has Json document that is not an object."_s, json_doc);
     return;
   }
 
   QJsonObject json_obj = json_doc.object();
   if (json_obj.isEmpty()) {
-    LoginError(QStringLiteral("Authentication reply from server has empty Json object."), json_doc);
+    LoginError(u"Authentication reply from server has empty Json object."_s, json_doc);
     return;
   }
 
-  if (!json_obj.contains("access_token"_L1) || !json_obj.contains("expires_in"_L1)) {
-    LoginError(QStringLiteral("Authentication reply from server is missing access_token or expires_in"), json_obj);
+  if (!json_obj.contains("token_type"_L1) || !json_obj.contains("access_token"_L1) || !json_obj.contains("expires_in"_L1)) {
+    LoginError(u"Authentication reply from server is missing token_type, access_token or expires_in"_s, json_obj);
     return;
   }
 
+  token_type_ = json_obj["token_type"_L1].toString();
   access_token_ = json_obj["access_token"_L1].toString();
+  refresh_token_ = json_obj["refresh_token"_L1].toString();
   expires_in_ = json_obj["expires_in"_L1].toInt();
-  if (json_obj.contains("refresh_token"_L1)) {
-    refresh_token_ = json_obj["refresh_token"_L1].toString();
-  }
   login_time_ = QDateTime::currentSecsSinceEpoch();
 
   if (json_obj.contains("user"_L1) && json_obj["user"_L1].isObject()) {
@@ -491,17 +480,16 @@ void TidalService::AccessTokenRequestFinished(QNetworkReply *reply) {
     }
   }
 
-  session_id_.clear();
-
   Settings s;
-  s.beginGroup(TidalSettingsPage::kSettingsGroup);
-  s.setValue("access_token", access_token_);
-  s.setValue("refresh_token", refresh_token_);
-  s.setValue("expires_in", expires_in_);
-  s.setValue("login_time", login_time_);
-  s.setValue("country_code", country_code_);
-  s.setValue("user_id", user_id_);
-  s.remove("session_id");
+  s.beginGroup(TidalSettings::kSettingsGroup);
+  s.setValue(kTokenType, token_type_);
+  s.setValue(kAccessToken, access_token_);
+  s.setValue(kRefreshToken, refresh_token_);
+  s.setValue(kExpiresIn, expires_in_);
+  s.setValue(kLoginTime, login_time_);
+  s.setValue(kCountryCode, country_code_);
+  s.setValue(kUserId, user_id_);
+  s.remove(kSessionId);
   s.endGroup();
 
   if (expires_in_ > 0) {
@@ -516,195 +504,28 @@ void TidalService::AccessTokenRequestFinished(QNetworkReply *reply) {
 
 }
 
-void TidalService::SendLogin() {
-  SendLoginWithCredentials(api_token_, username_, password_);
-}
-
-void TidalService::SendLoginWithCredentials(const QString &api_token, const QString &username, const QString &password) {
-
-  login_sent_ = true;
-  ++login_attempts_;
-  timer_login_attempt_->start();
-  timer_refresh_login_->stop();
-
-  const ParamList params = ParamList() << Param(QStringLiteral("token"), (api_token.isEmpty() ? api_token_ : api_token))
-                                       << Param(QStringLiteral("username"), username)
-                                       << Param(QStringLiteral("password"), password)
-                                       << Param(QStringLiteral("clientVersion"), QStringLiteral("2.2.1--7"));
-
-  QUrlQuery url_query;
-  for (const Param &param : params) {
-    url_query.addQueryItem(QString::fromLatin1(QUrl::toPercentEncoding(param.first)), QString::fromLatin1(QUrl::toPercentEncoding(param.second)));
-  }
-
-  QUrl url(QString::fromLatin1(kAuthUrl));
-  QNetworkRequest req(url);
-
-  req.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/x-www-form-urlencoded"));
-  req.setRawHeader("X-Tidal-Token", (api_token.isEmpty() ? api_token_.toUtf8() : api_token.toUtf8()));
-
-  QByteArray query = url_query.toString(QUrl::FullyEncoded).toUtf8();
-  QNetworkReply *reply = network_->post(req, query);
-  QObject::connect(reply, &QNetworkReply::sslErrors, this, &TidalService::HandleLoginSSLErrors);
-  QObject::connect(reply, &QNetworkReply::finished, this, [this, reply]() { HandleAuthReply(reply); });
-  replies_ << reply;
-
-  //qLog(Debug) << "Tidal: Sending request" << url << query;
-
-}
-
-void TidalService::HandleAuthReply(QNetworkReply *reply) {
-
-  if (!replies_.contains(reply)) return;
-  replies_.removeAll(reply);
-  QObject::disconnect(reply, nullptr, this, nullptr);
-  reply->deleteLater();
-
-  login_sent_ = false;
-
-  if (reply->error() != QNetworkReply::NoError || reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() != 200) {
-    if (reply->error() != QNetworkReply::NoError && reply->error() < 200) {
-      // This is a network error, there is nothing more to do.
-      LoginError(QStringLiteral("%1 (%2)").arg(reply->errorString()).arg(reply->error()));
-      login_errors_.clear();
-      return;
-    }
-    else {
-      // See if there is Json data containing "status" and  "userMessage" - then use that instead.
-      QByteArray data(reply->readAll());
-      QJsonParseError json_error;
-      QJsonDocument json_doc = QJsonDocument::fromJson(data, &json_error);
-      if (json_error.error == QJsonParseError::NoError && !json_doc.isEmpty() && json_doc.isObject()) {
-        QJsonObject json_obj = json_doc.object();
-        if (!json_obj.isEmpty() && json_obj.contains("status"_L1) && json_obj.contains("userMessage"_L1)) {
-          int status = json_obj["status"_L1].toInt();
-          int sub_status = json_obj["subStatus"_L1].toInt();
-          QString user_message = json_obj["userMessage"_L1].toString();
-          login_errors_ << QStringLiteral("Authentication failure: %1 (%2) (%3)").arg(user_message).arg(status).arg(sub_status);
-        }
-      }
-      if (login_errors_.isEmpty()) {
-        if (reply->error() != QNetworkReply::NoError) {
-          login_errors_ << QStringLiteral("%1 (%2)").arg(reply->errorString()).arg(reply->error());
-        }
-        else {
-          login_errors_ << QStringLiteral("Received HTTP code %1").arg(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt());
-        }
-      }
-      LoginError();
-      login_errors_.clear();
-      return;
-    }
-  }
-
-  login_errors_.clear();
-
-  const QByteArray data = reply->readAll();
-  QJsonParseError json_error;
-  QJsonDocument json_doc = QJsonDocument::fromJson(data, &json_error);
-
-  if (json_error.error != QJsonParseError::NoError) {
-    LoginError(QStringLiteral("Authentication reply from server missing Json data."));
-    return;
-  }
-
-  if (json_doc.isEmpty()) {
-    LoginError(QStringLiteral("Authentication reply from server has empty Json document."));
-    return;
-  }
-
-  if (!json_doc.isObject()) {
-    LoginError(QStringLiteral("Authentication reply from server has Json document that is not an object."), json_doc);
-    return;
-  }
-
-  QJsonObject json_obj = json_doc.object();
-  if (json_obj.isEmpty()) {
-    LoginError(QStringLiteral("Authentication reply from server has empty Json object."), json_doc);
-    return;
-  }
-
-  if (!json_obj.contains("userId"_L1) || !json_obj.contains("sessionId"_L1) || !json_obj.contains("countryCode"_L1)) {
-    LoginError(QStringLiteral("Authentication reply from server is missing userId, sessionId or countryCode"), json_obj);
-    return;
-  }
-
-  country_code_ = json_obj["countryCode"_L1].toString();
-  session_id_ = json_obj["sessionId"_L1].toString();
-  user_id_ = json_obj["userId"_L1].toInt();
-  access_token_.clear();
-  refresh_token_.clear();
-
-  Settings s;
-  s.beginGroup(TidalSettingsPage::kSettingsGroup);
-  s.remove("access_token");
-  s.remove("refresh_token");
-  s.remove("expires_in");
-  s.remove("login_time");
-  s.setValue("user_id", user_id_);
-  s.setValue("session_id", session_id_);
-  s.setValue("country_code", country_code_);
-  s.endGroup();
-
-  qLog(Debug) << "Tidal: Login successful" << "user id" << user_id_ << "session id" << session_id_ << "country code" << country_code_;
-
-  login_attempts_ = 0;
-  timer_login_attempt_->stop();
-
-  Q_EMIT LoginComplete(true);
-  Q_EMIT LoginSuccess();
-
-}
-
 void TidalService::Logout() {
 
   user_id_ = 0;
   country_code_.clear();
   access_token_.clear();
-  session_id_.clear();
+  refresh_token_.clear();
   expires_in_ = 0;
   login_time_ = 0;
 
   Settings s;
-  s.beginGroup(TidalSettingsPage::kSettingsGroup);
-  s.remove("user_id");
-  s.remove("country_code");
-  s.remove("access_token");
-  s.remove("session_id");
-  s.remove("expires_in");
-  s.remove("login_time");
+  s.beginGroup(TidalSettings::kSettingsGroup);
+  s.remove(kUserId);
+  s.remove(kCountryCode);
+  s.remove(kTokenType);
+  s.remove(kAccessToken);
+  s.remove(kRefreshToken);
+  s.remove(kSessionId);
+  s.remove(kExpiresIn);
+  s.remove(kLoginTime);
   s.endGroup();
 
   timer_refresh_login_->stop();
-
-}
-
-void TidalService::ResetLoginAttempts() {
-  login_attempts_ = 0;
-}
-
-void TidalService::TryLogin() {
-
-  if (authenticated() || login_sent_) return;
-
-  if (api_token_.isEmpty()) {
-    Q_EMIT LoginComplete(false, tr("Missing Tidal API token."));
-    return;
-  }
-  if (username_.isEmpty()) {
-    Q_EMIT LoginComplete(false, tr("Missing Tidal username."));
-    return;
-  }
-  if (password_.isEmpty()) {
-    Q_EMIT LoginComplete(false, tr("Missing Tidal password."));
-    return;
-  }
-  if (login_attempts_ >= kLoginAttempts) {
-    Q_EMIT LoginComplete(false, tr("Not authenticated with Tidal and reached maximum number of login attempts."));
-    return;
-  }
-
-  Q_EMIT RequestLogin();
 
 }
 
@@ -721,25 +542,16 @@ void TidalService::ResetArtistsRequest() {
 void TidalService::GetArtists() {
 
   if (!authenticated()) {
-    if (oauth_) {
-      Q_EMIT ArtistsResults(SongMap(), tr("Not authenticated with Tidal."));
-      ShowConfig();
-      return;
-    }
-    else if (api_token_.isEmpty() || username_.isEmpty() || password_.isEmpty()) {
-      Q_EMIT ArtistsResults(SongMap(), tr("Missing Tidal API token, username or password."));
-      ShowConfig();
-      return;
-    }
+    Q_EMIT ArtistsResults(SongMap(), tr("Not authenticated with Tidal."));
+    Q_EMIT OpenSettingsDialog(kSource);
+    return;
   }
 
   ResetArtistsRequest();
-  artists_request_.reset(new TidalRequest(this, url_handler_, app_, network_, TidalBaseRequest::Type::FavouriteArtists, this), [](TidalRequest *request) { request->deleteLater(); });
-  QObject::connect(&*artists_request_, &TidalRequest::RequestLogin, this, &TidalService::SendLogin);
+  artists_request_.reset(new TidalRequest(this, url_handler_, network_, TidalBaseRequest::Type::FavouriteArtists, this), [](TidalRequest *request) { request->deleteLater(); });
   QObject::connect(&*artists_request_, &TidalRequest::Results, this, &TidalService::ArtistsResultsReceived);
   QObject::connect(&*artists_request_, &TidalRequest::UpdateStatus, this, &TidalService::ArtistsUpdateStatusReceived);
   QObject::connect(&*artists_request_, &TidalRequest::UpdateProgress, this, &TidalService::ArtistsUpdateProgressReceived);
-  QObject::connect(this, &TidalService::LoginComplete, &*artists_request_, &TidalRequest::LoginComplete);
 
   artists_request_->Process();
 
@@ -776,25 +588,16 @@ void TidalService::ResetAlbumsRequest() {
 void TidalService::GetAlbums() {
 
   if (!authenticated()) {
-    if (oauth_) {
-      Q_EMIT AlbumsResults(SongMap(), tr("Not authenticated with Tidal."));
-      ShowConfig();
-      return;
-    }
-    else if (api_token_.isEmpty() || username_.isEmpty() || password_.isEmpty()) {
-      Q_EMIT AlbumsResults(SongMap(), tr("Missing Tidal API token, username or password."));
-      ShowConfig();
-      return;
-    }
+    Q_EMIT AlbumsResults(SongMap(), tr("Not authenticated with Tidal."));
+    Q_EMIT OpenSettingsDialog(kSource);
+    return;
   }
 
   ResetAlbumsRequest();
-  albums_request_.reset(new TidalRequest(this, url_handler_, app_, network_, TidalBaseRequest::Type::FavouriteAlbums, this), [](TidalRequest *request) { request->deleteLater(); });
-  QObject::connect(&*albums_request_, &TidalRequest::RequestLogin, this, &TidalService::SendLogin);
+  albums_request_.reset(new TidalRequest(this, url_handler_, network_, TidalBaseRequest::Type::FavouriteAlbums, this), [](TidalRequest *request) { request->deleteLater(); });
   QObject::connect(&*albums_request_, &TidalRequest::Results, this, &TidalService::AlbumsResultsReceived);
   QObject::connect(&*albums_request_, &TidalRequest::UpdateStatus, this, &TidalService::AlbumsUpdateStatusReceived);
   QObject::connect(&*albums_request_, &TidalRequest::UpdateProgress, this, &TidalService::AlbumsUpdateProgressReceived);
-  QObject::connect(this, &TidalService::LoginComplete, &*albums_request_, &TidalRequest::LoginComplete);
 
   albums_request_->Process();
 
@@ -831,25 +634,16 @@ void TidalService::ResetSongsRequest() {
 void TidalService::GetSongs() {
 
   if (!authenticated()) {
-    if (oauth_) {
-      Q_EMIT SongsResults(SongMap(), tr("Not authenticated with Tidal."));
-      ShowConfig();
-      return;
-    }
-    else if (api_token_.isEmpty() || username_.isEmpty() || password_.isEmpty()) {
-      Q_EMIT SongsResults(SongMap(), tr("Missing Tidal API token, username or password."));
-      ShowConfig();
-      return;
-    }
+    Q_EMIT SongsResults(SongMap(), tr("Not authenticated with Tidal."));
+    Q_EMIT OpenSettingsDialog(kSource);
+    return;
   }
 
   ResetSongsRequest();
-  songs_request_.reset(new TidalRequest(this, url_handler_, app_, network_, TidalBaseRequest::Type::FavouriteSongs, this), [](TidalRequest *request) { request->deleteLater(); });
-  QObject::connect(&*songs_request_, &TidalRequest::RequestLogin, this, &TidalService::SendLogin);
+  songs_request_.reset(new TidalRequest(this, url_handler_, network_, TidalBaseRequest::Type::FavouriteSongs, this), [](TidalRequest *request) { request->deleteLater(); });
   QObject::connect(&*songs_request_, &TidalRequest::Results, this, &TidalService::SongsResultsReceived);
   QObject::connect(&*songs_request_, &TidalRequest::UpdateStatus, this, &TidalService::SongsUpdateStatusReceived);
   QObject::connect(&*songs_request_, &TidalRequest::UpdateProgress, this, &TidalService::SongsUpdateProgressReceived);
-  QObject::connect(this, &TidalService::LoginComplete, &*songs_request_, &TidalRequest::LoginComplete);
 
   songs_request_->Process();
 
@@ -894,16 +688,9 @@ int TidalService::Search(const QString &text, StreamingSearchView::SearchType ty
 void TidalService::StartSearch() {
 
   if (!authenticated()) {
-    if (oauth_) {
-      Q_EMIT SearchResults(pending_search_id_, SongMap(), tr("Not authenticated with Tidal."));
-      ShowConfig();
-      return;
-    }
-    else if (api_token_.isEmpty() || username_.isEmpty() || password_.isEmpty()) {
-      Q_EMIT SearchResults(pending_search_id_, SongMap(), tr("Missing Tidal API token, username or password."));
-      ShowConfig();
-      return;
-    }
+    Q_EMIT SearchResults(pending_search_id_, SongMap(), tr("Not authenticated with Tidal."));
+    Q_EMIT OpenSettingsDialog(kSource);
+    return;
   }
 
   search_id_ = pending_search_id_;
@@ -913,8 +700,7 @@ void TidalService::StartSearch() {
 
 }
 
-void TidalService::CancelSearch() {
-}
+void TidalService::CancelSearch() {}
 
 void TidalService::SendSearch() {
 
@@ -935,13 +721,11 @@ void TidalService::SendSearch() {
       return;
   }
 
-  search_request_.reset(new TidalRequest(this, url_handler_, app_, network_, query_type, this), [](TidalRequest *request) { request->deleteLater(); });
+  search_request_.reset(new TidalRequest(this, url_handler_, network_, query_type, this), [](TidalRequest *request) { request->deleteLater(); });
 
-  QObject::connect(&*search_request_, &TidalRequest::RequestLogin, this, &TidalService::SendLogin);
   QObject::connect(&*search_request_, &TidalRequest::Results, this, &TidalService::SearchResultsReceived);
   QObject::connect(&*search_request_, &TidalRequest::UpdateStatus, this, &TidalService::SearchUpdateStatus);
   QObject::connect(&*search_request_, &TidalRequest::UpdateProgress, this, &TidalService::SearchUpdateProgress);
-  QObject::connect(this, &TidalService::LoginComplete, &*search_request_, &TidalRequest::LoginComplete);
 
   search_request_->Search(search_id_, search_text_);
   search_request_->Process();
@@ -958,26 +742,18 @@ void TidalService::SearchResultsReceived(const int id, const SongMap &songs, con
 uint TidalService::GetStreamURL(const QUrl &url, QString &error) {
 
   if (!authenticated()) {
-    if (oauth_) {
-      error = tr("Not authenticated with Tidal.");
-      return 0;
-    }
-    else if (api_token_.isEmpty() || username_.isEmpty() || password_.isEmpty()) {
-      error = tr("Missing Tidal API token, username or password.");
-      return 0;
-    }
+    error = tr("Not authenticated with Tidal.");
+    return 0;
   }
 
   uint id = 0;
   while (id == 0) id = ++next_stream_url_request_id_;
- SharedPtr<TidalStreamURLRequest> stream_url_req;
+  SharedPtr<TidalStreamURLRequest> stream_url_req;
   stream_url_req.reset(new TidalStreamURLRequest(this, network_, url, id), [](TidalStreamURLRequest *request) { request->deleteLater(); });
   stream_url_requests_.insert(id, stream_url_req);
 
-  QObject::connect(&*stream_url_req, &TidalStreamURLRequest::TryLogin, this, &TidalService::TryLogin);
   QObject::connect(&*stream_url_req, &TidalStreamURLRequest::StreamURLFailure, this, &TidalService::HandleStreamURLFailure);
   QObject::connect(&*stream_url_req, &TidalStreamURLRequest::StreamURLSuccess, this, &TidalService::HandleStreamURLSuccess);
-  QObject::connect(this, &TidalService::LoginComplete, &*stream_url_req, &TidalStreamURLRequest::LoginComplete);
 
   stream_url_req->Process();
 

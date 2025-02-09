@@ -2,6 +2,109 @@ Strawberry Music Player
 =======================
 ChangeLog
 
+Version 1.2.7 (2025.01.31):
+
+   Bugfixes:
+     * Fixed strawberry exiting when clicking tray icon.
+     * Fixed Clementine import script errors.
+     * Disabled OSD Pretty on Wayland since it's not working properly.
+
+  Enhancements:
+     * Only maximize error dialog if Strawberry is the active window (#1627).
+     * Added QPA Platform Native Interface as optional component.
+
+Version 1.2.6 (2025.01.17):
+
+   Bugfixes:
+    * Fixed dragging songs from playlist to queue.
+
+Version 1.2.5 (2025.01.17):
+
+  Bugfixes:
+    * Fixed crash when saving playcount or rating to file (#1633).
+    * Fixed QFile::open failing in unit tests.
+    * Fixed playlist sequence settings saved to wrong configuration file (#1649).
+
+  Enhancements:
+    * Fixed use of deprecated GIO functions with GLib 2.84 and newer.
+    * (macOS) Added back Sparkle updater to check for new releases.
+
+Version 1.2.4 (2025.01.10):
+
+  Bugfixes:
+     * Fixed Spotify songs not being available for scrobbling.
+     * Fixed leading "A" and "The" articles being skipped for album sort text.
+     * Fixed thread safety issue when validating playlist songs on startup.
+     * Fixed filter search not ignoring space after colon when using column based search.
+     * Fixed KGlobalAccel to use capitalized application name.
+     * Fixed slash not properly handled when saving a playlist (#1624).
+     * (Unix) Fixed collection scanner so it ignores special filesystem paths (/sys, /proc, /run, etc) (#1615).
+     * (Windows) Fixed smart playlist wizard not respecting dark mode with Windows 11 style (#1639).
+
+  Enhancements:
+     * Use XSPF "title" as playlist name when loading and saving playlists (#1624).
+     * Added support for using album ID when receving album covers for Subsonic songs (#1636).
+     * Added option for preserving directory structure when trascoding songs (#1637).
+     * (Windows) Always run MSVC runtime installer to possible fix issues when there is an older runtime installed.
+
+Version 1.2.3 (2024.12.08):
+
+  Bugfixes:
+    * Fixed libcdio NULL related compilation error on FreeBSD (#1610).
+    * Fixed missing seek when starting playback of a CUE song (#1568).
+    * Fixed "QDBusObjectPath: invalid path" error.
+
+Version 1.2.2 (2024.11.23):
+
+  Bugfixes:
+
+    * Fixed crash when creating a new smart playlist (#1609).
+    * Fixed last playlist column being added when dragging a song and switching playlists.
+
+Version 1.2.1 (2024.11.21):
+
+This release features major restructuring of the codebase, moving source files,
+rewriting CMake build files, dropping Qt 5 support, external tagreader,
+and dropping some unmaintained parts such as VLC.
+
+  Bugfixes:
+
+    * Fixed playback of CUE continuing to play from the same file after the song has finished playing (#1568).
+    * Fixed updating collection song sort text when disc is changed.
+    * Fixed current playing file left open when the next track errored (#1582).
+    * Fixed filter search not finding song containing uppercase "A" (#1599).
+    * Fixed crash when removing album from playlist when using shuffle albums (#1588).
+    * Fixed IDv3 MBID's tags with multiple entries being ignored.
+    * Fixed crash when enabling Tidal, Spotify, Qobuz or Subsonic services.
+    * Fixed passing filenames to strawberry on command line not resolving to absolute paths.
+    * (macOS) Fixed program not starting for users with long usernames.
+    * (macoS) Fixed crash when pressing caps lock (#1606).
+    * (macOS) Remove "song progress on taskbar" option in behaviour settings.
+
+  Enhancements:
+
+    * Resolve symbolic links when dragging files to the playlist to match collection song.
+    * Replaced Spotify username/password with access token.
+    * Require Qt 6.4 or higher and drop support for Qt 5.
+    * Require TagLib 1.12 or higher.
+    * Use Qt stringliterals.
+    * Move gstfastspectrum to src.
+    * Use standard user temp location for current album cover.
+    * Removed old MacFSListener.
+    * Removed external tagreader and protobuf dependency.
+    * Removed VLC support.
+    * Ported to Qt translation (.ts) files and removed gettext dependency.
+    * Removed deprecated Gnome/Mate SettingsDaemon global shortcuts.
+
+Version 1.1.3 (2024.09.21):
+
+  Bugfixes:
+    * Fixed gstreamer registry lookup leak in Spotify settings.
+    * Fixed all songs in a CUE sheet starting playback at the zero position (#1549).
+    * Fixed playback going to pause and back to play on song change.
+    * Fixed Genius Lyrics login not working (#1554).
+    * Fixed slow collection filter search.
+
 Version 1.1.2 (2024.09.12):
 
   Bugfixes:

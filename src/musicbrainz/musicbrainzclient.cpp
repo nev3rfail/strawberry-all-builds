@@ -43,14 +43,14 @@
 #include <QXmlStreamReader>
 #include <QTimer>
 
+#include "includes/shared_ptr.h"
 #include "core/logging.h"
-#include "core/shared_ptr.h"
 #include "core/networkaccessmanager.h"
 #include "core/networktimeouts.h"
 #include "utilities/xmlutils.h"
 #include "musicbrainzclient.h"
 
-using namespace Qt::StringLiterals;
+using namespace Qt::Literals::StringLiterals;
 
 namespace {
 constexpr char kTrackUrl[] = "https://musicbrainz.org/ws/2/recording/";
@@ -156,7 +156,7 @@ void MusicBrainzClient::Start(const int id, const QStringList &mbid_list) {
 
 void MusicBrainzClient::StartDiscIdRequest(const QString &discid) {
 
-  const ParamList params = ParamList() << Param(QStringLiteral("inc"), QStringLiteral("artists+recordings"));
+  const ParamList params = ParamList() << Param(u"inc"_s, u"artists+recordings"_s);
 
   QUrlQuery url_query;
   url_query.setQueryItems(params);
@@ -178,7 +178,7 @@ void MusicBrainzClient::FlushRequests() {
 
   Request request = requests_pending_.take(requests_pending_.firstKey());
 
-  const ParamList params = ParamList() << Param(QStringLiteral("inc"), QStringLiteral("artists+releases+media"));
+  const ParamList params = ParamList() << Param(u"inc"_s, u"artists+releases+media"_s);
 
   QUrlQuery url_query;
   url_query.setQueryItems(params);

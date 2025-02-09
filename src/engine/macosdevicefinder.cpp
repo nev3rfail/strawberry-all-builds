@@ -27,8 +27,8 @@
 
 #include <QString>
 
+#include "includes/scoped_cftyperef.h"
 #include "core/logging.h"
-#include "core/scoped_cftyperef.h"
 
 #include "macosdevicefinder.h"
 #include "enginedevice.h"
@@ -65,7 +65,7 @@ std::unique_ptr<T> GetProperty(const AudioDeviceID &device_id, const AudioObject
 }  // namespace
 
 
-MacOsDeviceFinder::MacOsDeviceFinder() : DeviceFinder(QStringLiteral("osxaudio"), { QStringLiteral("osxaudio"), QStringLiteral("osx"), QStringLiteral("osxaudiosink") }) {}
+MacOsDeviceFinder::MacOsDeviceFinder() : DeviceFinder(u"osxaudio"_s, { u"osxaudio"_s, u"osx"_s, u"osxaudiosink"_s }) {}
 
 EngineDeviceList MacOsDeviceFinder::ListDevices() {
 

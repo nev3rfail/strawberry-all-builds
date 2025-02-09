@@ -21,16 +21,18 @@
 #ifndef LOGGING_ENV_H
 #define LOGGING_ENV_H
 
-#include <gtest/gtest.h>
+#include "gtest_include.h"
 
 #include "core/logging.h"
+
+using namespace Qt::Literals::StringLiterals;
 
 class LoggingEnvironment : public ::testing::Environment {
  public:
   LoggingEnvironment() = default;
   void SetUp() override {
     logging::Init();
-    logging::SetLevels(QStringLiteral("*:4"));
+    logging::SetLevels(u"*:4"_s);
   }
  private:
   Q_DISABLE_COPY(LoggingEnvironment)

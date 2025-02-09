@@ -1,19 +1,22 @@
-/* This file was part of Clementine.
-   Copyright 2012, David Sansome <me@davidsansome.com>
-
-   Strawberry is free software: you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   Strawberry is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with Strawberry.  If not, see <http://www.gnu.org/licenses/>.
-*/
+/*
+ * Strawberry Music Player
+ * This file was part of Clementine.
+ * Copyright 2012, David Sansome <me@davidsansome.com>
+ *
+ * Strawberry is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * Strawberry is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with Strawberry.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ */
 
 #ifndef MOODBARRENDERER_H
 #define MOODBARRENDERER_H
@@ -23,31 +26,23 @@
 #include <QByteArray>
 #include <QString>
 #include <QImage>
-#include <QVector>
+#include <QList>
 #include <QColor>
 #include <QPalette>
 #include <QRect>
 #include <QSize>
 
+#include "constants/moodbarsettings.h"
+
 class QPainter;
 
-using ColorVector = QVector<QColor>;
+using ColorVector = QList<QColor>;
 
 class MoodbarRenderer {
  public:
-  // These values are persisted.  Remember to change moodbarsettingspage.ui when changing them.
-  enum class MoodbarStyle {
-    Normal = 0,
-    Angry,
-    Frozen,
-    Happy,
-    SystemPalette,
-    StyleCount
-  };
+  static QString StyleName(const MoodbarSettings::Style style);
 
-  static QString StyleName(const MoodbarStyle style);
-
-  static ColorVector Colors(const QByteArray &data, const MoodbarStyle style, const QPalette &palette);
+  static ColorVector Colors(const QByteArray &data, const MoodbarSettings::Style style, const QPalette &palette);
   static void Render(const ColorVector &colors, QPainter *p, const QRect rect);
   static QImage RenderToImage(const ColorVector &colors, const QSize size);
 
@@ -70,6 +65,6 @@ class MoodbarRenderer {
   };
 };
 
-Q_DECLARE_METATYPE(QVector<QColor>)
+Q_DECLARE_METATYPE(QList<QColor>)
 
 #endif  // MOODBARRENDERER_H

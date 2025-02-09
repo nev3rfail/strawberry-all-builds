@@ -47,7 +47,7 @@
 #include "devicelister.h"
 #include "giolister.h"
 
-using namespace Qt::StringLiterals;
+using namespace Qt::Literals::StringLiterals;
 
 QString GioLister::DeviceInfo::unique_id() const {
 
@@ -90,7 +90,8 @@ void OperationFinished(F f, GObject *object, GAsyncResult *result) {
 
 }
 
-void GioLister::VolumeMountFinished(GObject *object, GAsyncResult *result, gpointer) {
+void GioLister::VolumeMountFinished(GObject *object, GAsyncResult *result, gpointer instance) {
+  Q_UNUSED(instance)
   OperationFinished<GVolume>(std::bind(g_volume_mount_finish, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3), object, result);
 }
 
@@ -227,12 +228,12 @@ QList<QUrl> GioLister::MakeDeviceUrls(const QString &id) {
   for (QString uri : std::as_const(uris)) {
 
     // gphoto2 gives invalid hostnames with []:, characters in
-    static const QRegularExpression regex_url_usb(QStringLiteral("//\\[usb:(\\d+),(\\d+)\\]"));
-    uri.replace(regex_url_usb, QStringLiteral("//usb-\\1-\\2"));
+    static const QRegularExpression regex_url_usb(u"//\\[usb:(\\d+),(\\d+)\\]"_s);
+    uri.replace(regex_url_usb, u"//usb-\\1-\\2"_s);
 
     QUrl url;
 
-    static const QRegularExpression regex_url_schema(QStringLiteral("..+:.*"));
+    static const QRegularExpression regex_url_schema(u"..+:.*"_s);
     if (uri.contains(regex_url_schema)) {
       url = QUrl::fromEncoded(uri.toUtf8());
     }
@@ -244,16 +245,16 @@ QList<QUrl> GioLister::MakeDeviceUrls(const QString &id) {
 
       // Special case for file:// GIO URIs - we have to check whether they point to an ipod.
       if (url.isLocalFile() && IsIpod(url.path())) {
-        url.setScheme(QStringLiteral("ipod"));
+        url.setScheme(u"ipod"_s);
       }
 
-      static const QRegularExpression regex_usb_digit(QStringLiteral("usb/(\\d+)/(\\d+)"));
+      static const QRegularExpression regex_usb_digit(u"usb/(\\d+)/(\\d+)"_s);
       QRegularExpression device_re(regex_usb_digit);
       QRegularExpressionMatch re_match = device_re.match(unix_device);
       if (re_match.hasMatch()) {
         QUrlQuery url_query(url);
-        url_query.addQueryItem(QStringLiteral("busnum"), re_match.captured(1));
-        url_query.addQueryItem(QStringLiteral("devnum"), re_match.captured(2));
+        url_query.addQueryItem(u"busnum"_s, re_match.captured(1));
+        url_query.addQueryItem(u"devnum"_s, re_match.captured(2));
         url.setQuery(url_query);
       }
 
@@ -271,24 +272,29 @@ QList<QUrl> GioLister::MakeDeviceUrls(const QString &id) {
 
 }
 
-void GioLister::VolumeAddedCallback(GVolumeMonitor*, GVolume *v, gpointer d) {
-  static_cast<GioLister*>(d)->VolumeAdded(v);
+void GioLister::VolumeAddedCallback(GVolumeMonitor *volume_monitor, GVolume *volume, gpointer instance) {
+  Q_UNUSED(volume_monitor)
+  static_cast<GioLister*>(instance)->VolumeAdded(volume);
 }
 
-void GioLister::VolumeRemovedCallback(GVolumeMonitor*, GVolume *v, gpointer d) {
-  static_cast<GioLister*>(d)->VolumeRemoved(v);
+void GioLister::VolumeRemovedCallback(GVolumeMonitor *volume_monitor, GVolume *volume, gpointer instance) {
+  Q_UNUSED(volume_monitor)
+  static_cast<GioLister*>(instance)->VolumeRemoved(volume);
 }
 
-void GioLister::MountAddedCallback(GVolumeMonitor*, GMount *m, gpointer d) {
-  static_cast<GioLister*>(d)->MountAdded(m);
+void GioLister::MountAddedCallback(GVolumeMonitor *volume_monitor, GMount *mount, gpointer instance) {
+  Q_UNUSED(volume_monitor)
+  static_cast<GioLister*>(instance)->MountAdded(mount);
 }
 
-void GioLister::MountChangedCallback(GVolumeMonitor*, GMount *m, gpointer d) {
-  static_cast<GioLister*>(d)->MountChanged(m);
+void GioLister::MountChangedCallback(GVolumeMonitor *volume_monitor, GMount *mount, gpointer instance) {
+  Q_UNUSED(volume_monitor)
+  static_cast<GioLister*>(instance)->MountChanged(mount);
 }
 
-void GioLister::MountRemovedCallback(GVolumeMonitor*, GMount *m, gpointer d) {
-  static_cast<GioLister*>(d)->MountRemoved(m);
+void GioLister::MountRemovedCallback(GVolumeMonitor *volume_monitor, GMount *mount, gpointer instance) {
+  Q_UNUSED(volume_monitor)
+  static_cast<GioLister*>(instance)->MountRemoved(mount);
 }
 
 void GioLister::VolumeAdded(GVolume *volume) {
@@ -478,16 +484,22 @@ void GioLister::DeviceInfo::ReadMountInfo(GMount *mount) {
   }
 
 #ifdef HAVE_GIO_UNIX
+#ifdef GLIB_VERSION_2_84
+  GUnixMountEntry *unix_mount = g_unix_mount_entry_for(g_file_get_path(root), nullptr);
+#else
   GUnixMountEntry *unix_mount = g_unix_mount_for(g_file_get_path(root), nullptr);
+#endif
   if (unix_mount) {
-    // the GIO's definition of system internal mounts include filesystems like
-    // autofs, tmpfs, sysfs, etc, and various system directories, including the root,
-    // /boot, /var, /home, etc.
+    // The GIO's definition of system internal mounts include filesystems like autofs, tmpfs, sysfs, etc,
+    // and various system directories, including the root, /boot, /var, /home, etc.
+#ifdef GLIB_VERSION_2_84
+    is_system_internal = g_unix_mount_entry_is_system_internal(unix_mount);
+    g_unix_mount_entry_free(unix_mount);
+#else
     is_system_internal = g_unix_mount_is_system_internal(unix_mount);
     g_unix_mount_free(unix_mount);
-    // Although checking most of the internal mounts is safe,
-    // we really don't want to touch autofs filesystems, as that would
-    // trigger automounting.
+#endif
+    // Although checking most of the internal mounts is safe, we really don't want to touch autofs filesystems, as that would trigger automounting.
     if (is_system_internal) return;
   }
 #endif
@@ -566,15 +578,18 @@ QString GioLister::FindUniqueIdByVolume(GVolume *volume) const {
 
 }
 
-void GioLister::VolumeEjectFinished(GObject *object, GAsyncResult *result, gpointer) {
+void GioLister::VolumeEjectFinished(GObject *object, GAsyncResult *result, gpointer instance) {
+  Q_UNUSED(instance)
   OperationFinished<GVolume>(std::bind(g_volume_eject_with_operation_finish, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3), object, result);
 }
 
-void GioLister::MountEjectFinished(GObject *object, GAsyncResult *result, gpointer) {
+void GioLister::MountEjectFinished(GObject *object, GAsyncResult *result, gpointer instance) {
+  Q_UNUSED(instance)
   OperationFinished<GMount>(std::bind(g_mount_eject_with_operation_finish, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3), object, result);
 }
 
-void GioLister::MountUnmountFinished(GObject *object, GAsyncResult *result, gpointer) {
+void GioLister::MountUnmountFinished(GObject *object, GAsyncResult *result, gpointer instance) {
+  Q_UNUSED(instance)
   OperationFinished<GMount>(std::bind(g_mount_unmount_with_operation_finish, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3), object, result);
 }
 

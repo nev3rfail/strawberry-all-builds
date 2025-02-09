@@ -29,15 +29,16 @@
 #include <QImage>
 
 #include "core/song.h"
-#include "core/tagreaderclient.h"
+#include "tagreader/tagreaderclient.h"
 #include "albumcoverloaderoptions.h"
 #include "albumcoverexport.h"
 #include "coverexportrunnable.h"
 
-using namespace Qt::StringLiterals;
+using namespace Qt::Literals::StringLiterals;
 
-CoverExportRunnable::CoverExportRunnable(const AlbumCoverExport::DialogResult &dialog_result, const AlbumCoverLoaderOptions::Types &cover_types, const Song &song, QObject *parent)
+CoverExportRunnable::CoverExportRunnable(const SharedPtr<TagReaderClient> tagreader_client, const AlbumCoverExport::DialogResult &dialog_result, const AlbumCoverLoaderOptions::Types &cover_types, const Song &song, QObject *parent)
     : QObject(parent),
+      tagreader_client_(tagreader_client),
       dialog_result_(dialog_result),
       cover_types_(cover_types),
       song_(song) {}
@@ -78,7 +79,7 @@ void CoverExportRunnable::ProcessAndExportCover() {
         break;
       case AlbumCoverLoaderOptions::Type::Embedded:
         if (song_.art_embedded() && dialog_result_.export_embedded_) {
-          const TagReaderClient::Result result = TagReaderClient::Instance()->LoadEmbeddedArtAsImageBlocking(song_.url().toLocalFile(), image);
+          const TagReaderResult result = tagreader_client_->LoadCoverImageBlocking(song_.url().toLocalFile(), image);
           if (result.success() && !image.isNull()) {
             extension = "jpg"_L1;
           }
@@ -170,7 +171,7 @@ void CoverExportRunnable::ExportCover() {
         break;
       case AlbumCoverLoaderOptions::Type::Embedded:
         if (song_.art_embedded() && dialog_result_.export_embedded_) {
-          const TagReaderClient::Result result = TagReaderClient::Instance()->LoadEmbeddedArtAsImageBlocking(song_.url().toLocalFile(), image);
+          const TagReaderResult result = tagreader_client_->LoadCoverImageBlocking(song_.url().toLocalFile(), image);
           if (result.success() && !image.isNull()) {
             embedded_cover = true;
             extension = "jpg"_L1;

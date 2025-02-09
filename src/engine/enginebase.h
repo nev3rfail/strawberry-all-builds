@@ -38,8 +38,7 @@
 #include <QString>
 #include <QUrl>
 
-#include "devicefinders.h"
-#include "enginemetadata.h"
+#include "core/enginemetadata.h"
 #include "core/song.h"
 
 class EngineBase : public QObject {
@@ -50,13 +49,6 @@ class EngineBase : public QObject {
 
  public:
   ~EngineBase() override;
-
-  enum class Type {
-    None,
-    GStreamer,
-    VLC,
-    Xine
-  };
 
  // State:
  // Playing when playing,
@@ -96,15 +88,10 @@ class EngineBase : public QObject {
 
   using Scope = std::vector<int16_t>;
 
-  static Type TypeFromName(const QString &name);
-  static QString Name(const Type type);
-  static QString Description(const Type type);
-
-  virtual Type type() const = 0;
   virtual bool Init() = 0;
   virtual State state() const = 0;
   virtual void StartPreloading(const QUrl&, const QUrl&, const bool, const qint64, const qint64) {}
-  virtual bool Load(const QUrl &media_url, const QUrl &stream_url, const TrackChangeFlags change, const bool force_stop_at_end, const quint64 beginning_nanosec, const qint64 end_nanosec, const std::optional<double> ebur128_integrated_loudness_lufs);
+  virtual bool Load(const QUrl &media_url, const QUrl &stream_url, const TrackChangeFlags track_change_flags, const bool force_stop_at_end, const quint64 beginning_offset_nanosec, const qint64 end_offset_nanosec, const std::optional<double> ebur128_integrated_loudness_lufs);
   virtual bool Play(const bool pause, const quint64 offset_nanosec) = 0;
   virtual void Stop(const bool stop_after = false) = 0;
   virtual void Pause() = 0;
@@ -119,9 +106,9 @@ class EngineBase : public QObject {
 
   // Sets new values for the beginning and end markers of the currently playing song.
   // This doesn't change the state of engine or the stream's current position.
-  virtual void RefreshMarkers(const quint64 beginning_nanosec, const qint64 end_nanosec) {
-    beginning_nanosec_ = beginning_nanosec;
-    end_nanosec_ = end_nanosec;
+  virtual void RefreshMarkers(const quint64 beginning_offset_nanosec, const qint64 end_offset_nanosec) {
+    beginning_offset_nanosec_ = beginning_offset_nanosec;
+    end_offset_nanosec_ = end_offset_nanosec;
   }
 
   virtual OutputDetailsList GetOutputsList() const = 0;
@@ -133,7 +120,7 @@ class EngineBase : public QObject {
 
   // Plays a media stream represented with the URL 'u' from the given 'beginning' to the given 'end' (usually from 0 to a song's length).
   // Both markers should be passed in nanoseconds. 'end' can be negative, indicating that the real length of 'u' stream is unknown.
-  bool Play(const QUrl &media_url, const QUrl &stream_url, const bool pause, const TrackChangeFlags flags, const bool force_stop_at_end, const quint64 beginning_nanosec, const qint64 end_nanosec, const quint64 offset_nanosec, const std::optional<double> ebur128_integrated_loudness_lufs);
+  bool Play(const QUrl &media_url, const QUrl &stream_url, const bool pause, const TrackChangeFlags flags, const bool force_stop_at_end, const quint64 beginning_offset_nanosec, const qint64 end_offset_nanosec, const quint64 offset_nanosec, const std::optional<double> ebur128_integrated_loudness_lufs);
   void SetVolume(const uint volume);
 
  public Q_SLOTS:
@@ -192,8 +179,8 @@ class EngineBase : public QObject {
   bool exclusive_mode_;
   bool volume_control_;
   uint volume_;
-  quint64 beginning_nanosec_;
-  qint64 end_nanosec_;
+  quint64 beginning_offset_nanosec_;
+  qint64 end_offset_nanosec_;
   QUrl media_url_;
   QUrl stream_url_;
   double ebur128_loudness_normalizing_gain_db_;
@@ -249,8 +236,7 @@ class EngineBase : public QObject {
 
   // Spotify
 #ifdef HAVE_SPOTIFY
-  QString spotify_username_;
-  QString spotify_password_;
+  QString spotify_access_token_;
 #endif
 
   bool about_to_end_emitted_;
@@ -258,7 +244,6 @@ class EngineBase : public QObject {
   Q_DISABLE_COPY(EngineBase)
 };
 
-Q_DECLARE_METATYPE(EngineBase::Type)
 Q_DECLARE_METATYPE(EngineBase::State)
 Q_DECLARE_METATYPE(EngineBase::TrackChangeType)
 Q_DECLARE_METATYPE(EngineBase::OutputDetails)

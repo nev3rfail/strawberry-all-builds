@@ -38,30 +38,24 @@
 #include <QDesktopServices>
 #include <QMessageBox>
 
-#include "core/shared_ptr.h"
-#include "core/application.h"
+#include "includes/shared_ptr.h"
 #include "core/networkaccessmanager.h"
 #include "core/logging.h"
-#include "core/settings.h"
-#include "core/localredirectserver.h"
-#include "utilities/randutils.h"
-#include "utilities/timeconstants.h"
-#include "streaming/streamingservices.h"
 #include "spotify/spotifyservice.h"
 #include "albumcoverfetcher.h"
 #include "jsoncoverprovider.h"
 #include "spotifycoverprovider.h"
 
-using namespace Qt::StringLiterals;
+using namespace Qt::Literals::StringLiterals;
 
 namespace {
 constexpr char kApiUrl[] = "https://api.spotify.com/v1";
 constexpr int kLimit = 10;
 }  // namespace
 
-SpotifyCoverProvider::SpotifyCoverProvider(Application *app, SharedPtr<NetworkAccessManager> network, QObject *parent)
-    : JsonCoverProvider(QStringLiteral("Spotify"), true, true, 2.5, true, true, app, network, parent),
-      service_(app->streaming_services()->Service<SpotifyService>()) {}
+SpotifyCoverProvider::SpotifyCoverProvider(const SpotifyServicePtr service, SharedPtr<NetworkAccessManager> network, QObject *parent)
+    : JsonCoverProvider(u"Spotify"_s, true, true, 2.5, true, true, network, parent),
+      service_(service) {}
 
 SpotifyCoverProvider::~SpotifyCoverProvider() {
 
@@ -98,20 +92,20 @@ bool SpotifyCoverProvider::StartSearch(const QString &artist, const QString &alb
     }
   }
 
-  const ParamList params = ParamList() << Param(QStringLiteral("q"), query)
-                                       << Param(QStringLiteral("type"), type)
-                                       << Param(QStringLiteral("limit"), QString::number(kLimit));
+  const ParamList params = ParamList() << Param(u"q"_s, query)
+                                       << Param(u"type"_s, type)
+                                       << Param(u"limit"_s, QString::number(kLimit));
 
   QUrlQuery url_query;
   for (const Param &param : params) {
     url_query.addQueryItem(QString::fromLatin1(QUrl::toPercentEncoding(param.first)), QString::fromLatin1(QUrl::toPercentEncoding(param.second)));
   }
 
-  QUrl url(QLatin1String(kApiUrl) + QStringLiteral("/search"));
+  QUrl url(QLatin1String(kApiUrl) + u"/search"_s);
   url.setQuery(url_query);
   QNetworkRequest req(url);
   req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
-  req.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/x-www-form-urlencoded"));
+  req.setHeader(QNetworkRequest::ContentTypeHeader, u"application/x-www-form-urlencoded"_s);
   req.setRawHeader("Authorization", "Bearer " + service_->access_token().toUtf8());
 
   QNetworkReply *reply = network_->get(req);

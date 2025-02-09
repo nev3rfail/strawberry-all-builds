@@ -21,6 +21,11 @@
 
 #include <config.h>
 
+#include <cstddef>
+
+#include <cdio/cdio.h>
+#include <cdio/device.h>
+
 #include <QtGlobal>
 #include <QFileInfo>
 #include <QByteArray>
@@ -30,19 +35,21 @@
 #include <QRegularExpression>
 #include <QUrl>
 
-// This must come after Qt includes
-#include <cdio/cdio.h>
-#include <cdio/device.h>
-
 #include "cddalister.h"
 #include "core/logging.h"
 
+using namespace Qt::Literals::StringLiterals;
+
 QStringList CddaLister::DeviceUniqueIDs() { return devices_list_; }
 
-QVariantList CddaLister::DeviceIcons(const QString &) {
+QVariantList CddaLister::DeviceIcons(const QString &id) {
+
+  Q_UNUSED(id)
+
   QVariantList icons;
-  icons << QStringLiteral("media-optical");
+  icons << u"media-optical"_s;
   return icons;
+
 }
 
 QString CddaLister::DeviceManufacturer(const QString &id) {
@@ -71,11 +78,24 @@ QString CddaLister::DeviceModel(const QString &id) {
 
 }
 
-quint64 CddaLister::DeviceCapacity(const QString&) { return 0; }
+quint64 CddaLister::DeviceCapacity(const QString &id) {
 
-quint64 CddaLister::DeviceFreeSpace(const QString&) { return 0; }
+  Q_UNUSED(id)
 
-QVariantMap CddaLister::DeviceHardwareInfo(const QString&) {
+  return 0;
+
+}
+
+quint64 CddaLister::DeviceFreeSpace(const QString &id) {
+
+  Q_UNUSED(id)
+
+  return 0;
+
+}
+
+QVariantMap CddaLister::DeviceHardwareInfo(const QString &id) {
+  Q_UNUSED(id)
   return QVariantMap();
 }
 
@@ -88,19 +108,21 @@ QString CddaLister::MakeFriendlyName(const QString &id) {
     return QString::fromUtf8(cd_info.psz_model);
   }
   cdio_destroy(cdio);
-  return QStringLiteral("CD (") + id + QLatin1Char(')');
+  return u"CD ("_s + id + QLatin1Char(')');
 
 }
 
 QList<QUrl> CddaLister::MakeDeviceUrls(const QString &id) {
-  return QList<QUrl>() << QUrl(QStringLiteral("cdda://") + id);
+  return QList<QUrl>() << QUrl(u"cdda://"_s + id);
 }
 
 void CddaLister::UnmountDevice(const QString &id) {
   cdio_eject_media_drive(id.toLocal8Bit().constData());
 }
 
-void CddaLister::UpdateDeviceFreeSpace(const QString&) {}
+void CddaLister::UpdateDeviceFreeSpace(const QString &id) {
+  Q_UNUSED(id)
+}
 
 bool CddaLister::Init() {
 
@@ -123,7 +145,7 @@ bool CddaLister::Init() {
     }
 #ifdef Q_OS_MACOS
     // Every track is detected as a separate device on Darwin. The raw disk looks like /dev/rdisk1
-    if (!device.contains(QRegularExpression(QStringLiteral("^/dev/rdisk[0-9]$")))) {
+    if (!device.contains(QRegularExpression(u"^/dev/rdisk[0-9]$"_s))) {
       continue;
     }
 #endif

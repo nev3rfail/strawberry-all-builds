@@ -35,6 +35,10 @@
 #include "transcoder/transcoderoptionsmp3.h"
 #include "transcodersettingspage.h"
 #include "ui_transcodersettingspage.h"
+#include "constants/transcodersettings.h"
+
+using namespace Qt::Literals::StringLiterals;
+using namespace TranscoderSettings;
 
 class SettingsDialog;
 
@@ -43,7 +47,7 @@ TranscoderSettingsPage::TranscoderSettingsPage(SettingsDialog *dialog, QWidget *
       ui_(new Ui_TranscoderSettingsPage) {
 
   ui_->setupUi(this);
-  setWindowIcon(IconLoader::Load(QStringLiteral("tools-wizard"), true, 0, 32));
+  setWindowIcon(IconLoader::Load(u"tools-wizard"_s, true, 0, 32));
 
 }
 

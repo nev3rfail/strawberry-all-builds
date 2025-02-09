@@ -48,6 +48,8 @@
 
 #include "volumeslider.h"
 
+using namespace Qt::Literals::StringLiterals;
+
 VolumeSlider::VolumeSlider(QWidget *parent, const uint max)
     : SliderSlider(Qt::Horizontal, parent, static_cast<int>(max)),
       wheel_accumulator_(0),
@@ -94,7 +96,9 @@ void VolumeSlider::HandleWheel(const int delta) {
 
 }
 
-void VolumeSlider::paintEvent(QPaintEvent*) {
+void VolumeSlider::paintEvent(QPaintEvent *e) {
+
+  Q_UNUSED(e)
 
   QPainter p(this);
 
@@ -129,7 +133,7 @@ void VolumeSlider::paintEvent(QPaintEvent*) {
 
 void VolumeSlider::generateGradient() {
 
-  const QImage mask(QStringLiteral(":/pictures/volumeslider-gradient.png"));
+  const QImage mask(u":/pictures/volumeslider-gradient.png"_s);
 
   QImage gradient_image(mask.size(), QImage::Format_ARGB32_Premultiplied);
   QPainter p(&gradient_image);
@@ -162,7 +166,8 @@ void VolumeSlider::slotAnimTimer() {
 
 }
 
-void VolumeSlider::paletteChange(const QPalette&) {
+void VolumeSlider::paletteChange(const QPalette &palette) {
+  Q_UNUSED(palette)
   generateGradient();
 }
 
@@ -191,8 +196,8 @@ QPixmap VolumeSlider::drawVolumePixmap() const {
 
 void VolumeSlider::drawVolumeSliderHandle() {
 
-  QImage pixmapHandle(QStringLiteral(":/pictures/volumeslider-handle.png"));
-  QImage pixmapHandleGlow(QStringLiteral(":/pictures/volumeslider-handle_glow.png"));
+  QImage pixmapHandle(u":/pictures/volumeslider-handle.png"_s);
+  QImage pixmapHandleGlow(u":/pictures/volumeslider-handle_glow.png"_s);
 
   QImage pixmapHandleGlow_image(pixmapHandleGlow.size(), QImage::Format_ARGB32_Premultiplied);
   QPainter painter(&pixmapHandleGlow_image);
@@ -229,7 +234,9 @@ void VolumeSlider::drawVolumeSliderHandle() {
 
 }
 
-void VolumeSlider::enterEvent(QEnterEvent*) {
+void VolumeSlider::enterEvent(QEnterEvent *e) {
+
+  Q_UNUSED(e)
 
   anim_enter_ = true;
   anim_count_ = 0;
@@ -238,7 +245,9 @@ void VolumeSlider::enterEvent(QEnterEvent*) {
 
 }
 
-void VolumeSlider::leaveEvent(QEvent*) {
+void VolumeSlider::leaveEvent(QEvent *e) {
+
+  Q_UNUSED(e)
 
   // This can happen if you enter and leave the widget quickly
   if (anim_count_ == 0) anim_count_ = 1;
@@ -252,13 +261,13 @@ void VolumeSlider::contextMenuEvent(QContextMenuEvent *e) {
 
   QHash<QAction*, int> values;
   QMenu menu;
-  menu.setTitle(QStringLiteral("Volume"));
-  values[menu.addAction(QStringLiteral("100%"))] = 100;
-  values[menu.addAction(QStringLiteral("80%"))] = 80;
-  values[menu.addAction(QStringLiteral("60%"))] = 60;
-  values[menu.addAction(QStringLiteral("40%"))] = 40;
-  values[menu.addAction(QStringLiteral("20%"))] = 20;
-  values[menu.addAction(QStringLiteral("0%"))] = 0;
+  menu.setTitle(u"Volume"_s);
+  values[menu.addAction(u"100%"_s)] = 100;
+  values[menu.addAction(u"80%"_s)] = 80;
+  values[menu.addAction(u"60%"_s)] = 60;
+  values[menu.addAction(u"40%"_s)] = 40;
+  values[menu.addAction(u"20%"_s)] = 20;
+  values[menu.addAction(u"0%"_s)] = 0;
 
   QAction *ret = menu.exec(mapToGlobal(e->pos()));
   if (ret) {

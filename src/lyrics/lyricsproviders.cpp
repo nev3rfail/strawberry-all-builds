@@ -36,7 +36,7 @@
 #include "lyricsprovider.h"
 #include "lyricsproviders.h"
 
-#include "settings/lyricssettingspage.h"
+#include "constants/lyricssettings.h"
 
 int LyricsProviders::NextOrderId = 0;
 
@@ -44,7 +44,7 @@ using std::make_shared;
 
 LyricsProviders::LyricsProviders(QObject *parent) : QObject(parent), thread_(new QThread(this)), network_(make_shared<NetworkAccessManager>()) {
 
-  setObjectName(QLatin1String(metaObject()->className()));
+  setObjectName(QLatin1String(QObject::metaObject()->className()));
   thread_->setObjectName(objectName());
   network_->moveToThread(thread_);
   thread_->start();
@@ -72,8 +72,8 @@ void LyricsProviders::ReloadSettings() {
   }
 
   Settings s;
-  s.beginGroup(LyricsSettingsPage::kSettingsGroup);
-  const QStringList providers_enabled = s.value("providers", QStringList() << all_providers.values()).toStringList();
+  s.beginGroup(LyricsSettings::kSettingsGroup);
+  const QStringList providers_enabled = s.value(LyricsSettings::kProviders, QStringList() << all_providers.values()).toStringList();
   s.endGroup();
 
   int i = 0;

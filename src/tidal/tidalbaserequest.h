@@ -36,7 +36,7 @@
 #include <QJsonObject>
 #include <QJsonValue>
 
-#include "core/shared_ptr.h"
+#include "includes/shared_ptr.h"
 #include "tidalservice.h"
 
 class QNetworkReply;
@@ -46,7 +46,7 @@ class TidalBaseRequest : public QObject {
   Q_OBJECT
 
  public:
-  explicit TidalBaseRequest(TidalService *service, SharedPtr<NetworkAccessManager> network, QObject *parent = nullptr);
+  explicit TidalBaseRequest(TidalService *service, const SharedPtr<NetworkAccessManager> network, QObject *parent = nullptr);
 
   enum class Type {
     None,
@@ -64,7 +64,7 @@ class TidalBaseRequest : public QObject {
   using ParamList = QList<Param>;
 
   QNetworkReply *CreateRequest(const QString &ressource_name, const ParamList &params_provided);
-  QByteArray GetReplyData(QNetworkReply *reply, const bool send_login);
+  QByteArray GetReplyData(QNetworkReply *reply);
   QJsonObject ExtractJsonObj(const QByteArray &data);
   QJsonValue ExtractItems(const QByteArray &data);
   QJsonValue ExtractItems(const QJsonObject &json_obj);
@@ -72,37 +72,23 @@ class TidalBaseRequest : public QObject {
   virtual void Error(const QString &error, const QVariant &debug = QVariant()) = 0;
   static QString ErrorsToHTML(const QStringList &errors);
 
-  bool oauth() const { return service_->oauth(); }
   QString client_id() const { return service_->client_id(); }
-  QString api_token() const { return service_->api_token(); }
   quint64 user_id() const { return service_->user_id(); }
   QString country_code() const { return service_->country_code(); }
-  QString username() const { return service_->username(); }
-  QString password() const { return service_->password(); }
   QString quality() const { return service_->quality(); }
   int artistssearchlimit() const { return service_->artistssearchlimit(); }
   int albumssearchlimit() const { return service_->albumssearchlimit(); }
   int songssearchlimit() const { return service_->songssearchlimit(); }
-
+  QString token_type() const { return service_->token_type(); }
   QString access_token() const { return service_->access_token(); }
-  QString session_id() const { return service_->session_id(); }
-
   bool authenticated() const { return service_->authenticated(); }
-  bool login_sent() const { return service_->login_sent(); }
-  int max_login_attempts() const { return service_->max_login_attempts(); }
-  int login_attempts() const { return service_->login_attempts(); }
-
-  virtual void set_need_login() = 0;
-
- Q_SIGNALS:
-  void RequestLogin();
 
  private Q_SLOTS:
   void HandleSSLErrors(const QList<QSslError> &ssl_errors);
 
  private:
   TidalService *service_;
-  SharedPtr<NetworkAccessManager> network_;
+  const SharedPtr<NetworkAccessManager> network_;
 };
 
 #endif  // TIDALBASEREQUEST_H

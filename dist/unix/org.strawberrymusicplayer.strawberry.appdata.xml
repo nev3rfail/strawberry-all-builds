@@ -6,7 +6,6 @@
   <project_license>GPL-3.0+</project_license>
   <provides>
     <binary>strawberry</binary>
-    <binary>strawberry-tagreader</binary>
   </provides>
   <name>Strawberry Music Player</name>
   <summary>A music player and collection organizer</summary>
@@ -15,11 +14,11 @@
   <developer id="net.jkvinge.jonas">
     <name>Jonas Kvinge</name>
   </developer>
-  ​<translation type="gettext">strawberry</translation>
+  ​<translation type="qt">strawberry</translation>
   <content_rating type="oars-1.1" />
   <description>
     <p>
-      Strawberry is a music player and music collection organizer. It is aimed at music collectors and audiophiles. With Strawberry you can play and manage your digital music collection, or stream your favorite radios. It also has unofficial streaming support for Tidal and Qobuz. Strawberry is free software released under GPL. The source code is available on GitHub. It's written in C++ using the Qt toolkit and GStreamer. Strawberry is compatible with both Qt version 5 and 6.
+      Strawberry is a music player and music collection organizer. It is aimed at music collectors and audiophiles. Strawberry is free software released under GPL. It's written in C++ using the Qt framework and GStreamer.
     </p>
     <p>Features:</p>
     <ul>
@@ -52,6 +51,14 @@
   </screenshots>
   <update_contact>eclipseo@fedoraproject.org</update_contact>
     <releases>
+        <release version="1.2.7" date="2025-01-31"/>
+        <release version="1.2.6" date="2025-01-17"/>
+        <release version="1.2.5" date="2025-01-17"/>
+        <release version="1.2.4" date="2025-01-10"/>
+        <release version="1.2.3" date="2024-12-08"/>
+        <release version="1.2.2" date="2024-11-23"/>
+        <release version="1.2.1" date="2024-11-21"/>
+        <release version="1.1.3" date="2024-09-21"/>
         <release version="1.1.2" date="2024-09-12"/>
         <release version="1.1.1" date="2024-07-22"/>
         <release version="1.1.0" date="2024-07-14"/>
